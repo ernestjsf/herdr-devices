@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec } from "herdr";
-import { actionsFor, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
+import { actionsFor, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
@@ -163,17 +163,20 @@ class Panel {
     store.set("folds", this.folds);
   }
 
-  glyph(g, t) {
-    if (g === "spin") return svg(SPINNER).size(9).text_color(t.working).spin(900);
-    if (g === "warn") return svg(icon("triangle")).size(8).text_color(t.blocked);
-    return g === "on" ? div().size(7).rounded(4).bg(t.done) : div().size(7).rounded(4).border_1().border_color(t.dim);
+  // The device's icon, carrying its state: booted it is bright with a `done`
+  // dot on its corner, off it is dim; the spinner in a phase, the warning
+  // triangle offline.
+  glyph(g, d, t) {
+    if (g === "spin") return svg(SPINNER).size(13).text_color(t.working).spin(900);
+    if (g === "warn") return svg(icon("triangle")).size(12).text_color(t.blocked);
+    return div().relative().size(14).child(svg(icon(deviceIcon(d))).size(14).text_color(g === "on" ? t.foreground : t.dim))
+      .when(g === "on", (el) => el.child(div().absolute().right(-3).bottom(-2).size(7).rounded(4).bg(t.done).border(1.5).border_color(t.background)));
   }
 
   row(d, c) {
     const { t, rail, pending } = c, key = deviceKey(d), phase = phaseOf(d, pending);
     const on = d.state === "on" && !phase, hovered = this.hovered === key && !rail;
-    return h_flex().id(`row-${key}`).h(24).flex_none().mx(6).pr(4).gap(6).items_center().rounded(6).cursor_pointer().text_size(12.5)
-      .when(on, (el) => el.bg(t.done + "14"))
+    return h_flex().id(`row-${key}`).h(26).flex_none().mx(6).pr(4).gap(8).items_center().when(rail, (el) => el.justify_center()).rounded(6).cursor_pointer().text_size(12.5)
       .when(this.selected === key, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
       .on_hover((h, cx) => { this.hovered = h ? key : this.hovered === key ? null : this.hovered; cx.notify(); })
@@ -181,12 +184,12 @@ class Panel {
       .on_mouse_down("right", (_e, cx) => { openMenu(d); cx.stop_propagation(); })
       // Reserved: the run half colors this bar by space. Nothing yet.
       .child(div().w(2).h(14).flex_none().rounded(1))
-      .child(div().w(9).flex_none().flex().items_center().justify_center().child(this.glyph(glyphOf(d, phase), t)))
-      .when(rail, (el) => el.child(div().flex_none().font_semibold().child(d.name.slice(0, 1).toUpperCase())))
+      .child(div().size(14).flex_none().child(this.glyph(glyphOf(d, phase), d, t)))
       .when(!rail, (el) => el
-        .child(div().min_w(0).truncate().text_color(t.foreground).when(on, (n) => n.font_semibold()).child(d.name))
-        .child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail ?? ""))
-        .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).min_w(0).truncate().text_size(11).text_color(t.dim).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
+        .child(div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name))
+        // A simulator's version is its section's title already.
+        .when(d.kind !== "sim" && Boolean(d.detail), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail)))
+        .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.done + "1f").text_size(10.5).font_medium().text_color(t.done).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
         .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
         .child(div().flex_1())
         .when(hovered, (n) => n.children(hoverActions(d, phase).map((a) =>
@@ -212,15 +215,15 @@ class Panel {
     const sorted = sortRecent(devices, used), { shown, hidden } = foldRows(sorted, { all, pending });
     const canFold = foldRows(sorted, { pending }).hidden > 0;
     if (rail) return [div().mx(8).my(6).h(1).flex_none().bg(t.border), ...shown.map((d) => this.row(d, c))];
-    const out = [h_flex().id(`sec-${title}`).h(26).flex_none().px(14).mt(4).gap(6).items_center().cursor_pointer()
+    const out = [h_flex().id(`sec-${title}`).h(26).flex_none().px(14).mt(6).gap(6).items_center().cursor_pointer()
       .on_click((_e, cx) => { this.fold("closed", title); cx.notify(); })
       .child(svg(`mods/files/chevron-${closed ? "right" : "down"}.svg`).size(12).flex_none().text_color(t.dim))
-      .child(div().text_size(11).font_semibold().text_color(t.dim).child(title.toUpperCase()))
-      .child(div().px(5).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(String(devices.length)))];
+      .child(div().text_size(11).font_semibold().text_color(t.dim).child(title))
+      .child(div().text_size(11).text_color(t.dim + "99").child(String(devices.length)))];
     if (closed) return out;
     if (empty) out.push(this.line(title, empty.text, empty.link, t));
     out.push(...shown.map((d) => this.row(d, c)));
-    if (canFold) out.push(h_flex().id(`fold-${title}`).h(24).flex_none().mx(6).pl(23).items_center().rounded(6).cursor_pointer()
+    if (canFold) out.push(h_flex().id(`fold-${title}`).h(24).flex_none().mx(6).pl(32).items_center().rounded(6).cursor_pointer()
       .text_size(11.5).text_color(t.muted).hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => { this.fold("all", title); cx.notify(); })
       .child(all ? "Show fewer" : `Show all (${sorted.length})`));

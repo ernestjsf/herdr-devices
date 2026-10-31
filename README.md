@@ -10,7 +10,7 @@ the everyday actions one click away.
 
 - **iOS** simulators grouped by runtime, **Android** AVDs and `adb` devices.
 - Running devices and the three most recent per section; **Show all** for the rest.
-- A status glyph per row: booted, off, booting or stopping, offline.
+- Each row carries its device's icon (phone, tablet, watch, TV, Vision Pro), with its state: bright with a dot when booted, dim when off, a spinner while booting or stopping, a warning triangle when offline.
 - Live: simulators update within a second of a boot or shutdown from any
   terminal. Android devices are polled every 5 s; the AVD list updates when an
   AVD is added or removed.

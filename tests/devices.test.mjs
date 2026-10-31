@@ -307,7 +307,15 @@ test("hover icons and the row click", () => {
 test("footer", () => {
   const android = [{ kind: "avd" }, { kind: "phone" }];
   assert.equal(D.footerText([1, 2, 3, 4, 5], android, 1000, 4000), "5 simulators · 1 emulator · 1 device · refreshed 0s ago");
-  assert.equal(D.footerText([1], [], 1000, 1000 + 25000), "1 simulator · 0 emulators · 0 devices · refreshed 20s ago");
-  assert.equal(D.footerText([], [], 0, 5), "0 simulators · 0 emulators · 0 devices");
-  assert.match(D.footerText([], [], 1, 1 + 125000), /refreshed 2m ago$/);
+  assert.equal(D.footerText([1], [], 1000, 1000 + 25000), "1 simulator · refreshed 20s ago");
+  assert.equal(D.footerText([], [], 0, 5), "No devices");
+  assert.match(D.footerText([], [], 1, 1 + 125000), /^No devices · refreshed 2m ago$/);
+});
+
+test("row icon by name", () => {
+  const icons = (...names) => names.map((name) => D.deviceIcon({ name }));
+  assert.deepEqual(icons("iPhone 17 Pro", "Pixel_9_Pro_API_36", "SM-S928B"), ["smartphone", "smartphone", "smartphone"]);
+  assert.deepEqual(icons("iPad Pro 13-inch (M5)", "Pixel_Tablet_API_35", "Pixel Fold"), ["tablet", "tablet", "tablet"]);
+  assert.deepEqual(icons("Apple Watch Series 11", "Wear_OS_Large_Round"), ["watch", "watch"]);
+  assert.deepEqual(icons("Apple TV 4K (3rd generation)", "Television_1080p_API_34", "Apple Vision Pro"), ["tv", "tv", "glasses"]);
 });

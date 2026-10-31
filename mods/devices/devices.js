@@ -368,12 +368,26 @@ export const phaseOf = (d, pending = {}) =>
 // The status glyph: "spin" (a phase), "on", "off", or "warn" (offline, unauthorized, ...).
 export const glyphOf = (d, phase) => (phase ? "spin" : d.state === "on" || d.state === "off" ? d.state : "warn");
 
+// The row's icon, by what the device is: tablet, watch, tv, glasses (Vision
+// Pro) or smartphone, read from the name.
+export function deviceIcon(d) {
+  const n = d.name ?? "";
+  if (/ipad|tablet|fold|pad\b/i.test(n)) return "tablet";
+  if (/watch|wear/i.test(n)) return "watch";
+  if (/\btv\b|television/i.test(n)) return "tv";
+  if (/vision/i.test(n)) return "glasses";
+  return "smartphone";
+}
+
 const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const ago = (ms) => (ms < 60000 ? `${Math.max(0, Math.floor(ms / 10000) * 10)}s ago` : ms < 3600000 ? `${Math.floor(ms / 60000)}m ago` : `${Math.floor(ms / 3600000)}h ago`);
 
-// "5 simulators · 1 emulator · 1 device · refreshed 10s ago"
+// "5 simulators · 1 emulator · refreshed 10s ago": only the kinds there are;
+// "No devices" when none.
 export function footerText(sims, android, refreshedAt, now) {
-  const parts = [count(sims.length, "simulator"), count(android.filter((d) => d.kind === "avd").length, "emulator"), count(android.filter((d) => d.kind === "phone").length, "device")];
+  const kinds = [[sims.length, "simulator"], [android.filter((d) => d.kind === "avd").length, "emulator"], [android.filter((d) => d.kind === "phone").length, "device"]];
+  const parts = kinds.filter(([n]) => n > 0).map(([n, word]) => count(n, word));
+  if (!parts.length) parts.push("No devices");
   if (refreshedAt) parts.push(`refreshed ${ago(now - refreshedAt)}`);
   return parts.join(" · ");
 }
