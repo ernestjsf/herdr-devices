@@ -219,6 +219,9 @@ class Panel {
   render(cx) {
     const changed = shared("devices.changed");
     if (changed !== this.seen) { this.seen = changed; this.reloadAll(cx); }
+    // A Boot or Shut down the menu handed over: taken once, and only fresh (it's persisted).
+    const asked = shared("devices.request");
+    if (asked) { setShared("devices.request", null); if (Date.now() - asked.at < 10000) this.act(asked.action, asked.device, cx); }
     const t = theme(), rail = this.width > 0 && this.width < 160;
     const c = { t, rail, pending: shared("devices.pending") ?? {}, used: shared("devices.used") ?? {} };
     const body = [];
@@ -252,8 +255,9 @@ class Panel {
   }
 }
 
-// The right-click menu. A popup's tasks end when it closes, so it finishes
-// its command first ("Working…"), then closes.
+// The right-click menu. A popup's tasks end when it closes: Boot and Shut down
+// go to the panel (the row spins) and it closes at once; anything else it
+// finishes first ("Working…"), then closes.
 class Menu {
   init(cx) {
     this.device = props().device;
@@ -269,6 +273,7 @@ class Menu {
     if (!a || this.busy >= 0) return;
     if (a.action === "copy") { copy(d, cx); closeOverlay(overlay); return; }
     if (a.action === "openurl" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : "erase", d); return; }
+    if (a.action === "boot" || a.action === "shutdown") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
     this.busy = i;
     cx.spawn(async (cx) => { await perform(a.action, d); closeOverlay(overlay); cx.notify(); });
     cx.notify();
