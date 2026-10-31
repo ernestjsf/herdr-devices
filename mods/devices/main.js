@@ -6,8 +6,8 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder } from "herdr";
-import { actionsFor, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroPrefill, runMaestro } from "./actions.js";
+import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroCwd, maestroStart, runMaestro, mark } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -24,12 +24,21 @@ function copy(text, cx) {
   notify({ level: "success", title: "Copied", body: text, timeout: 2000 });
 }
 
-function openDialog(role, d) {
-  openOverlay({ mod: "devices", kind: "dialog", width: 420, height: role === "maestro" ? 230 : role === "url" ? 200 : 190, props: { role, device: d } });
+function openDialog(role, d, extra = {}, height = role === "url" ? 200 : 190) {
+  openOverlay({ mod: "devices", kind: "dialog", width: 420, height, props: { role, device: d, ...extra } });
 }
 
+// The flow picker fits up to 8 rows, then scrolls: TOP is the padding, title (22),
+// folder line (18) and their gaps; the filter (36 + gap) shows past 6 flows;
+// FOOTER is All flows' separator (9), the Variables field (36) and buttons (32)
+// with their gaps, padding and 3 px slack.
+const PICK_TOP = 78, PICK_FILTER = 46, PICK_FOOTER = 118;
+const pickerHeight = (n) => PICK_TOP + (n > 6 ? PICK_FILTER : 0) + Math.min(n + 1, 8) * MENU_ROW + PICK_FOOTER;
+
+// The tab folder's last flow is offered again, so the menu knows its rows (and height) now.
 function openMenu(d) {
-  openOverlay({ mod: "devices", kind: "popup", width: 210, height: actionsFor(d).length * MENU_ROW + 38, props: { role: "menu", device: d } });
+  const cwd = maestroCwd(), lastFlow = shared("devices.maestroLast")?.[cwd];
+  openOverlay({ mod: "devices", kind: "popup", width: 210, height: actionsFor(d, { lastFlow }).length * MENU_ROW + 38, props: { role: "menu", device: d, cwd, lastFlow } });
 }
 
 // The one link an empty or error line offers.
@@ -273,8 +282,10 @@ class Panel {
 // finishes first ("Working…"), then closes.
 class Menu {
   init(cx) {
-    this.device = props().device;
-    this.items = actionsFor(this.device);
+    const { device, cwd, lastFlow } = props();
+    this.device = device;
+    this.cwd = cwd;
+    this.items = actionsFor(device, { lastFlow });
     this.at = -1;
     this.busy = -1;
     this.handle = cx.focus_handle();
@@ -285,10 +296,15 @@ class Menu {
     const a = this.items[i], { overlay } = props(), d = this.device;
     if (!a || this.busy >= 0) return;
     if (a.action === "copy" || a.action === "copyapp") { copy(a.action === "copy" ? d.id : d.apps[0], cx); closeOverlay(overlay); return; }
-    if (a.action === "openurl" || a.action === "maestro" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : a.action, d); return; }
+    if (a.action === "maestroAgain") { closeOverlay(overlay); runMaestro(d, a.path, this.cwd, parseVars(shared("devices.maestroVars")?.[a.path] ?? "") ?? []); return; }
+    if (a.action === "openurl" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : a.action, d); return; }
     if (a.action === "boot" || a.action === "shutdown") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
     this.busy = i;
-    cx.spawn(async (cx) => { await perform(a.action, d, { app: a.app }); closeOverlay(overlay); cx.notify(); });
+    cx.spawn(async (cx) => {
+      // Maestro lists the flows first, so the dialog opens at its size.
+      if (a.action === "maestro") { const start = await maestroStart(); openDialog("maestro", d, start, start.flows.length ? pickerHeight(start.flows.length) : 230); closeOverlay(overlay); return; }
+      await perform(a.action, d, { app: a.app }); closeOverlay(overlay); cx.notify();
+    });
     cx.notify();
   }
 
@@ -317,28 +333,84 @@ class Menu {
 }
 
 // Open URL, Run Maestro flow and Erase. Styled like Herdr's prompt and confirm; the action's
-// error closes nothing (it is also toasted).
+// error closes nothing (it is also toasted). Run Maestro flow picks from the
+// .maestro folder's flows, or asks for a path when there is none.
 class Dialog {
   init(cx) {
-    const { role, device } = props();
+    const { role, device, cwd, path, flows = [] } = props();
     this.role = role;
     this.device = device;
+    this.cwd = cwd;
+    this.path = path;
+    this.flows = flows;
+    this.picking = role === "maestro" && flows.length > 0;
     this.error = null;
     this.busy = false;
     this.handle = cx.focus_handle();
-    if (role === "url" || role === "maestro") {
-      this.input = InputState.new({ placeholder: role === "url" ? "https://… or myapp://…" : "Flow file or folder" });
-      this.input.on("change", (_e, cx) => { this.error = null; cx.notify(); });
-      this.input.on("submit", (_e, cx) => this.confirm(cx));
-      this.input.focus();
-      cx.timer.after(600, () => this.input.focus());
-      if (role === "maestro") cx.spawn(async (cx) => {
-        const { cwd, path } = await maestroPrefill();
-        this.cwd = cwd;
-        if (!this.input.value()) this.input.set_value(path); // not over what was typed meanwhile
+    // All flows is row 0; the flow last run here is preselected while it still exists.
+    this.filter = "";
+    this.at = this.picking ? flows.findIndex((f) => f.path === shared("devices.maestroLast")?.[cwd]) + 1 : 0;
+    if (this.picking) {
+      this.varsShown = this.varsFor(this.visible()[this.at]);
+      this.vars = InputState.new({ placeholder: "KEY=VALUE, space separated (maestro -e)", value: this.varsShown });
+      // Compared, not flagged: set_value may report a change too.
+      this.vars.on("change", (_e, cx) => { if (this.vars.value() !== this.varsShown) this.varsEdited = true; this.varsError = null; cx.notify(); });
+      this.vars.on("submit", (_e, cx) => this.pick(this.visible()[this.at], cx));
+    }
+    if (role === "url" || (role === "maestro" && (!this.picking || flows.length > 6))) {
+      const placeholder = this.picking ? "Filter flows…" : role === "url" ? "https://… or myapp://…" : "Flow file or folder";
+      this.input = InputState.new({ placeholder, ...(role === "maestro" && !this.picking && { value: path }) });
+      this.input.on("change", (_e, cx) => {
+        if (this.picking) { this.filter = this.input.value().trim().toLowerCase(); this.select(0); } else this.error = null;
         cx.notify();
       });
+      this.input.on("submit", (_e, cx) => (this.picking ? this.pick(this.visible()[this.at], cx) : this.confirm(cx)));
+      this.input.focus();
+      cx.timer.after(600, () => this.input.focus());
     } else this.handle.focus();
+  }
+
+  // The picker's rows: All flows, then every flow; filtered, only the flows that match.
+  visible() {
+    const f = this.filter;
+    return f ? this.flows.filter((r) => (r.sub + r.label).toLowerCase().includes(f)) : [{ all: true, path: this.path }, ...this.flows];
+  }
+
+  // A row's variables: what was typed in the field, else the ones it ran with last.
+  varsFor(r) {
+    return this.varsEdited ? this.vars.value() : (shared("devices.maestroVars")?.[r?.path] ?? "");
+  }
+
+  // The Variables field follows the selected row until it is typed in.
+  select(at) {
+    this.at = at;
+    if (this.varsEdited) return;
+    this.varsShown = this.varsFor(this.visible()[at]);
+    this.vars.set_value(this.varsShown);
+  }
+
+  // The variables as argv words, or null with the error shown.
+  typedVars(text, cx) {
+    const vars = parseVars(text);
+    if (!vars) { this.varsError = "Variables are KEY=VALUE, space separated"; cx.notify(); }
+    return vars;
+  }
+
+  // Once: Enter can come both as the input's submit and as a key.
+  run(path, vars = []) {
+    if (this.ran) return;
+    this.ran = true;
+    runMaestro(this.device, path, this.cwd, vars);
+    closeOverlay(props().overlay);
+  }
+
+  pick(r, cx) {
+    if (!r || this.ran) return;
+    const text = this.varsFor(r), vars = this.typedVars(text, cx);
+    if (!vars) return;
+    mark("devices.maestroLast", this.cwd, r.all ? undefined : r.path);
+    mark("devices.maestroVars", r.path, text.trim() || undefined);
+    this.run(r.path, vars);
   }
 
   confirm(cx) {
@@ -346,8 +418,7 @@ class Dialog {
     if (this.role === "maestro") {
       const path = this.input.value().trim();
       if (!path) { this.error = "Type a flow file or folder path, or Browse…"; cx.notify(); return; }
-      runMaestro(this.device, path, this.cwd ?? home()); // cwd: until the prefill answers
-      closeOverlay(props().overlay);
+      this.run(path);
       return;
     }
     const url = this.role === "url" ? this.input.value().trim() : undefined;
@@ -362,7 +433,61 @@ class Dialog {
     cx.notify();
   }
 
+  button(id, text, primary, action) {
+    const t = theme(), erase = this.role === "erase";
+    return h_flex().id(id).h(32).px(14).items_center().rounded(8).border_1()
+      .border_color(primary ? (erase ? t.ansi1 : t.solid) : t.input).bg(primary ? (erase ? t.ansi1 : t.solid) : t.raised)
+      .text_color(primary ? (erase ? t.background : t.solid_foreground) : t.foreground).text_size(12.5).font_medium().cursor_pointer()
+      .hover((s) => s.opacity(0.88)).on_click(action).child(text);
+  }
+
+  // A picker row, sized and styled like the menu's: click runs it, hover only paints.
+  flowRow(r, i, t) {
+    return h_flex().id(`df-${i}`).h(MENU_ROW).flex_none().px(8).gap(9).rounded(7).items_center().cursor_pointer()
+      .when(i === this.at, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => this.pick(r, cx))
+      .child(r.all ? svg(icon("flask")).size(14).flex_none().text_color(t.muted) : div().size(14).flex_none())
+      .child(r.all ? div().flex_1().min_w(0).truncate().child("All flows")
+        : h_flex().flex_1().min_w(0).when(Boolean(r.sub), (el) => el.child(div().min_w(0).truncate().text_color(t.dim).child(r.sub)))
+          .child(div().min_w(0).truncate().text_color(t.foreground).child(r.label)));
+  }
+
+  picker() {
+    const t = theme(), d = this.device, rows = this.visible(), h = home();
+    const folder = this.path === h || this.path.startsWith(`${h}/`) ? `~${this.path.slice(h.length)}` : this.path;
+    const list = rows.map((r, i) => (r.all ? div().flex_none().pb(4).mb(4).border_b(1).border_color(t.border).child(this.flowRow(r, i, t)) : this.flowRow(r, i, t)));
+    return v_flex().id("devices-dialog").track_focus(this.handle).size_full().min_h(0).p(18).gap(10).bg(t.popover).text_size(13).text_color(t.foreground)
+      .on_key_down((e, cx) => {
+        const n = rows.length;
+        if (e.key === "escape") closeOverlay(props().overlay);
+        else if (e.key === "down" && n) this.select((this.at + 1) % n);
+        else if (e.key === "up" && n) this.select((this.at - 1 + n) % n);
+        else if (e.key === "enter" && !this.input) this.pick(rows[this.at], cx); // with a filter, its submit runs it
+        else return;
+        cx.stop_propagation();
+        cx.notify();
+      })
+      .child(h_flex().h(22).flex_none().items_center().child(div().flex_1().text_size(15).font_semibold().child("Run Maestro flow"))
+        .child(div().text_size(11).text_color(t.dim).child("Esc")))
+      .child(div().h(18).flex_none().min_w(0).truncate().text_size(12).text_color(t.muted).child(`on ${d.name} · ${folder}`))
+      .when(Boolean(this.input), (el) => el.child(Input.new(this.input).h(36).flex_none().px(10).rounded(9).border_1().border_color(t.accent).bg(t.background).text_size(12.8).text_color(t.foreground)))
+      .child(v_flex().id("dd-flows").flex_1().min_h(0).overflow_y_scrollbar()
+        .children(rows.length ? list : [div().h(MENU_ROW).flex_none().pl(31).flex().items_center().text_color(t.dim).child("No flows match")]))
+      .child(Input.new(this.vars).h(36).flex_none().px(10).rounded(9).border_1().border_color(t.accent).bg(t.background).text_size(12.8).text_color(t.foreground))
+      // Not in the height: the list gives it room.
+      .when(Boolean(this.varsError), (el) => el.child(div().flex_none().text_size(12).text_color(t.ansi1).child(this.varsError ?? "")))
+      .child(h_flex().flex_none().gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child("↑↓ select · ↵ run"))
+        .child(this.button("dd-browse", "Browse…", false, (_e, cx) => {
+          const vars = this.typedVars(this.vars.value(), cx);
+          if (vars) cx.spawn(async () => { const path = await pickFolder({ prompt: "Run" }); if (path) this.run(path, vars); });
+        }))
+        .child(this.button("dd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
+        .child(this.button("dd-ok", "Run", true, (_e, cx) => this.pick(rows[this.at], cx))));
+  }
+
   render() {
+    if (this.picking) return this.picker();
     const t = theme(), d = this.device, erase = this.role === "erase", maestro = this.role === "maestro";
     const detail = maestro
       ? `Opens a pane below running maestro --device ${d.id} test <path>.`
@@ -371,10 +496,6 @@ class Dialog {
       : d.kind === "sim"
         ? `Shuts it down and resets it to factory state: every app and its data goes. ${d.name} stays in the list.`
         : `Deletes its snapshots/, then boots it once without a window with the emulator's -wipe-data and stops it. It starts like a new device.`;
-    const button = (id, text, primary, action) => h_flex().id(id).h(32).px(14).items_center().rounded(8).border_1()
-      .border_color(primary ? (erase ? t.ansi1 : t.solid) : t.input).bg(primary ? (erase ? t.ansi1 : t.solid) : t.raised)
-      .text_color(primary ? (erase ? t.background : t.solid_foreground) : t.foreground).text_size(12.5).font_medium().cursor_pointer()
-      .hover((s) => s.opacity(0.88)).on_click(action).child(text);
     return v_flex().id("devices-dialog").track_focus(this.handle).size_full().min_h(0).p(18).gap(10).bg(t.popover).text_size(13).text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape") closeOverlay(props().overlay);
@@ -389,12 +510,12 @@ class Dialog {
       .when(Boolean(this.error), (el) => el.child(div().text_size(12).text_color(t.ansi1).child(this.error ?? "")))
       .child(div().flex_1())
       .child(h_flex().gap(8).justify_end()
-        .when(maestro, (el) => el.child(button("dd-browse", "Browse…", false, (_e, cx) => cx.spawn(async (cx) => {
+        .when(maestro, (el) => el.child(this.button("dd-browse", "Browse…", false, (_e, cx) => cx.spawn(async (cx) => {
           const path = await pickFolder({ prompt: "Use" });
           if (path) { this.input.set_value(path); this.error = null; cx.notify(); }
         }))).child(div().flex_1()))
-        .child(button("dd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
-        .child(button("dd-ok", this.busy ? "Working…" : erase ? "Erase" : maestro ? "Run" : "Open", true, (_e, cx) => this.confirm(cx))));
+        .child(this.button("dd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
+        .child(this.button("dd-ok", this.busy ? "Working…" : erase ? "Erase" : maestro ? "Run" : "Open", true, (_e, cx) => this.confirm(cx))));
   }
 }
 

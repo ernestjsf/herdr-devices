@@ -263,8 +263,9 @@ export const lastLine = (text) => (text ?? "").split(/\r?\n/).map((l) => l.trim(
 // Starts a program detached with its output in a log: sh -c DETACH sh <log> <argv...>.
 const DETACH = 'log=$1; shift; mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 2>&1 &';
 
-// What a row offers, in menu order.
-export function actionsFor(d) {
+// What a row offers, in menu order. `lastFlow`: the flow last run in the tab's
+// folder, offered again right under Run Maestro flow.
+export function actionsFor(d, { lastFlow } = {}) {
   const on = d.state === "on", list = [];
   if (d.kind === "sim" || (d.kind === "avd" && d.avd)) {
     if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
@@ -273,7 +274,10 @@ export function actionsFor(d) {
   // devicectl has no screenshot.
   if (on && d.kind !== "ios") list.push({ action: "screenshot", label: "Screenshot", icon: "camera" });
   if (on) list.push({ action: "openurl", label: "Open URL…", icon: "link" });
-  if (on && (d.kind === "sim" || d.kind === "avd")) list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask" });
+  if (on && (d.kind === "sim" || d.kind === "avd")) {
+    list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask" });
+    if (lastFlow) list.push({ action: "maestroAgain", label: `Run ${lastFlow.split("/").pop().replace(/\.ya?ml$/, "")} again`, icon: "flask", path: lastFlow });
+  }
   if (on && d.apps?.length) {
     list.push({ action: "copyapp", label: "Copy app id", icon: "copy" });
     for (const app of d.apps) list.push({ action: "stop", label: `Stop ${appSegment(app)}`, icon: "square", app });
@@ -284,14 +288,43 @@ export function actionsFor(d) {
   return list;
 }
 
-// The terminal pane's command for a Maestro run: the device id and the flows
-// path are positional arguments ($1, $2), never part of the script. The shell
-// that follows keeps the pane open once maestro exits.
-const MAESTRO = 'maestro --device "$1" test "$2"; printf \'\\n[maestro exited %s]\\n\' "$?"; exec "${SHELL:-sh}" -l';
-export const maestroArgv = (d, flows) => ["sh", "-c", MAESTRO, "sh", d.id, flows];
+// The terminal pane's command for a Maestro run: the device id, the flows
+// path and the variables (-e KEY=VALUE ...) are positional arguments, never
+// part of the script. A failed run names its debug folder (the newest under
+// ~/.maestro/tests); the shell that follows keeps the pane open.
+const MAESTRO = 'dev=$1; flow=$2; shift 2; maestro --device "$dev" test "$@" "$flow"; s=$?; printf \'\\n[maestro exited %s]\\n\' "$s"; '
+  + '[ "$s" -eq 0 ] || printf \'debug output: %s\\n\' "$(ls -td "$HOME"/.maestro/tests/*/ 2>/dev/null | head -1 | sed \'s:/$::\')"; exec "${SHELL:-sh}" -l';
+export const maestroArgv = (d, flows, vars = []) => ["sh", "-c", MAESTRO, "sh", d.id, flows, ...vars.flatMap((v) => ["-e", v])];
+
+// The Variables field -> ["KEY=VALUE", ...] ([] when empty), or null when a
+// word isn't KEY=VALUE.
+export function parseVars(text) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  return words.every((w) => /^[A-Za-z_][A-Za-z0-9_]*=.*$/.test(w)) ? words : null;
+}
+
+// A device's Maestro pane, to end before the next run opens one. terminal.open's
+// name doesn't reach the core's terminal (name stays null), so its argv also tells.
+export const maestroPaneName = (d) => `maestro · ${d.name}`;
+export const isMaestroPane = (t, d) => t?.state !== "finished"
+  && (t?.name === maestroPaneName(d) || (t?.argv?.[0] === "sh" && t.argv[1] === "-c" && String(t.argv[2]).includes("maestro --device") && t.argv[4] === d.id));
 
 // The flows path to offer: the project's .maestro folder when it has one, else its folder.
 export const flowsDefault = (cwd, hasDotMaestro) => (!cwd ? "" : hasDotMaestro ? `${cwd}/.maestro` : cwd);
+
+// The YAML files under a .maestro folder, four levels deep (-H: the folder may be a symlink).
+export const findFlowsArgv = (dir) => ["find", "-H", dir, "-maxdepth", "4", "-type", "f", "(", "-name", "*.yaml", "-o", "-name", "*.yml", ")"];
+
+// find's paths -> the picker's rows { label, sub, path }: "auth/" and "login"
+// for <dir>/auth/login.yaml, sorted by folder then name. The top-level
+// config.yaml is Maestro's workspace config, not a flow.
+export function flowRows(flowsDir, paths) {
+  const root = `${flowsDir.replace(/\/+$/, "")}/`, by = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+  return paths.filter((p) => p.startsWith(root)).map((path) => {
+    const rel = path.slice(root.length), i = rel.lastIndexOf("/") + 1;
+    return { label: rel.slice(i).replace(/\.ya?ml$/, ""), sub: rel.slice(0, i), path };
+  }).filter((r) => r.sub || !/^config\.ya?ml$/.test(r.path.slice(root.length))).sort((a, b) => by(a.sub, b.sub) || by(a.label, b.label));
+}
 
 // The commands an action runs, in order: { argv, ok, phase } where ok lists the
 // exit codes that count as success ("any": the step may fail) and phase is the

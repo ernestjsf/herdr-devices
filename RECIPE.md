@@ -4,6 +4,8 @@ Your iOS simulators, connected iPhones and Android emulators and phones in a
 Herdr side panel, most recently used first. Click a device to boot it; hover for
 Shut down and Screenshot. The menu adds Open URL, Run Maestro flow, Copy id,
 Stop app and Erase. Each row shows the device's state and the app it is running.
+Run Maestro flow opens a picker of the project's flows, remembers the last one
+and its variables, and runs it in a pane below.
 
 ![Devices](preview.png)
 
@@ -184,7 +186,40 @@ action button reads `Working…` while it runs.
     (`https://`, `myapp://`), then `xcrun simctl openurl <udid> <url>` or `adb
     -s <serial> shell am start -a android.intent.action.VIEW -d '<url>'` (the
     URL single-quoted for the device's shell, since `adb shell` joins its words).
-  - **Run Maestro flow…**: only on booted simulators and emulators.
+  - **Run Maestro flow…**: only on booted simulators and emulators. The menu
+    row shows `Working…` while `maestroStart()`
+    finds the tab's folder (the focused terminal's, else the tab's first with
+    one, else home) and, when it has a `.maestro`, its flows (`find -H <dir>
+    -maxdepth 4 -type f ( -name *.yaml -o -name *.yml )`; the top-level
+    `config.yaml` is Maestro's config, not a flow), then opens the dialog at
+    its size. The picker: "Run Maestro flow", `on <device> · ~/…/.maestro` in
+    `muted`, a filter field past 6 flows (substring of folder + name; typing
+    selects the first match and hides All flows; none: "No flows match"), then
+    30px menu-style rows: **All flows** (flask icon, a `border` line under it,
+    runs the folder) and each flow, its subfolder in `dim` before its name,
+    sorted by folder then name. Up/down wrap, Enter or Run runs the selected
+    row, a click runs that row, hover only paints. The flow last run per folder
+    (shared `devices.maestroLast`) starts selected; the order never changes.
+    Under the list a Variables field (`KEY=VALUE, space separated (maestro
+    -e)`, styled like the filter): it shows the selected row's variables
+    (shared `devices.maestroVars`, flow -> its text) as the keys move the
+    selection, until typed in. `parseVars` accepts whitespace-separated
+    `/^[A-Za-z_][A-Za-z0-9_]*=.*$/` words; anything else shows "Variables are
+    KEY=VALUE, space separated" in red under it and nothing runs. Enter in it
+    runs the selected row. Running a row saves its text for that flow (empty
+    deletes it). Browse… (`pickFolder`) runs the folder picked with the typed
+    variables. No `.maestro`, or `find` failing: the path field instead,
+    prefilled with the folder, with Browse… and Run, no variables. Either way
+    any terminal of this device's Maestro run (`terminals()` with the name
+    `maestro · <device>`, or its argv, since the name doesn't reach the core)
+    gets `terminal.kill`, even mid-run, then `terminal.open` runs `sh -c
+    'dev=$1; flow=$2; shift 2; maestro --device "$dev" test "$@" "$flow"; …;
+    exec "$SHELL" -l' sh <id> <path> [-e KEY=VALUE …]` in a pane below, in that
+    folder. It prints `[maestro exited N]` and, when N isn't 0, `debug output:
+    <newest folder under ~/.maestro/tests>`.
+  - **Run *flow* again**: right under Run Maestro flow… when the tab's folder
+    (`maestroCwd()`) has a last flow; `openMenu` reads it, so the popup's
+    height counts the row. Runs it at once with its remembered variables.
   - **Erase…**: the dialog; Enter or Erase runs it. Simulator: `xcrun simctl
     shutdown` (failure ignored), then `xcrun simctl erase <udid>`; toasts
     `Erased <name>`. AVD: `adb devices -l` and the emulators' names are read
@@ -214,8 +249,10 @@ action button reads `Working…` while it runs.
   nowhere by itself.
 - `main.js`: one `View` with four roles by `props().role`: none, the panel;
   `"menu"`, the popup (`openOverlay({ mod: "devices", kind: "popup", width: 210,
-  height, props: { role: "menu", device } })`); `"url"` and `"erase"`, dialogs
-  (`kind: "dialog", width: 420, height: 200 | 190, props: { role, device }`).
+  height, props: { role: "menu", device, cwd, lastFlow } })`); `"url"`, `"erase"` and
+  `"maestro"`, dialogs (`kind: "dialog", width: 420, height: 200 | 190, props:
+  { role, device }`; Maestro adds `cwd, path, flows`, 230 high without flows,
+  else `78 + (filter ? 46 : 0) + min(flows + 1, 8) × 30 + 118`, at most 482).
 - `devices.js`, no herdr import: parsing (`parseSimctl` with `detail` and
   `lastUsed`, `avdNamesFrom`, `avdListChanged`, `parseAdbDevices`,
   `parseEmuAvdName`, `nameCache`, `parseIosApps`, `parseAndroidApp`, `appSegment`,
@@ -228,27 +265,30 @@ action button reads `Working…` while it runs.
   row click), `stepsFor` (the argv of every action), `footerText`,
   `toolCandidates`, `stillMissing`, `execFailure`, `rejectionLine`,
   `errorLine`, `emulatorLogPath`, `avdProcessPattern`, `lastLine`,
-  `screenshotPath`, `validUrl`.
+  `screenshotPath`, `validUrl`, `maestroArgv`, `parseVars`, `maestroPaneName`, `isMaestroPane`, `flowsDefault`, `findFlowsArgv`,
+  `flowRows` (find's paths -> `{ label, sub, path }`).
 - `actions.js`: `loadIos()`, `loadAndroid()`, `bootCompleted(serial)`,
   `emulatorRunning(avd)`, `emulatorLastLine(avd)`, `endWipe(device)`,
-  `avdHome()`, `forgetAvds()`, `focus(device)` and `perform(action, device, {
-  url })` through `exec`. `adb` and `emulator` are tried from the path that
+  `avdHome()`, `forgetAvds()`, `focus(device)`, `maestroCwd()`, `maestroStart()`,
+  `runMaestro(device, path, cwd, vars)` and `perform(action, device, { url })`
+  through `exec`. `adb` and `emulator` are tried from the path that
   worked last, then PATH, `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` (read once with
   `$ANDROID_AVD_HOME`, `$TMPDIR` and `uname -s` by `sh -c 'printf …'`) and
   `~/Library/Android/sdk`; the first that starts is kept. A path that stops
   starting is dropped and the others tried again; when none starts, the tool
   is "not found" for a minute.
 - Shared state: `devices.changed` (reread), `devices.pending` (phases),
-  `devices.used` (last use per device), `devices.request` (a Boot or Shut down
+  `devices.used` (last use per device), `devices.maestroLast` (folder -> the flow last run there), `devices.maestroVars` (flow -> its variables), `devices.request` (a Boot or Shut down
   from the menu, for the panel to run: taken once, ignored after 10 s). `localStorage` (per copy): `cache`
   (the last list) and `folds`.
 - `herdr` functions: `exec`, `home`, `readTextFile`, `watchFolder`, `notify`,
-  `shared` / `setShared`, `openOverlay`, `closeOverlay`, `props`, `theme`;
-  `readdir` from `fs/promises`.
+  `shared` / `setShared`, `openOverlay`, `closeOverlay`, `props`, `theme`,
+  `pickFolder`, `focused`, `panes`, `terminals`, `run` (`terminal.open`,
+  `terminal.kill`); `readdir` from `fs/promises`.
   gpui-kit: `cx.write_to_clipboard`, `cx.open_url`, `svg(...).spin(900)`,
   `on_hover`, `on_mouse_down("right", …)`, `on_size_change`, `InputState` +
   `Input`.
-- Programs: `xcrun`, `open`, `emulator`, `adb`, `sh`, `rm`, `pgrep`. No network of its
+- Programs: `xcrun`, `open`, `emulator`, `adb`, `sh`, `rm`, `pgrep`, `find`. No network of its
   own; `Get Xcode` and `Set ANDROID_HOME` open developer.apple.com /
   developer.android.com pages with `cx.open_url`.
 - Icons in `icons/` after Lucide (ISC notice there): devices, refresh, play,
@@ -336,7 +376,11 @@ action button reads `Working…` while it runs.
   (three recent plus running and pending), phases settling (an AVD only after boot_completed, three minutes at
   most), glyphs, hover icons, the row click, the footer, the menu per row, and
   the app lists (iOS launchctl, Android dumpsys with its fallback and hidden
-  packages) and segment, the menu's app items, and every action's argv (the URL quoted for `adb shell`, erase refusing a folder
+  packages) and segment, the menu's app items, the Maestro flow rows (sorted,
+  nested folders, config.yaml dropped at the top only, .yml, paths outside the
+  folder ignored), Run *flow* again, the variables' parsing, the Maestro
+  argv (variables as `-e` words after the id and path), which terminal is a
+  device's Maestro pane, and every action's argv (the URL quoted for `adb shell`, erase refusing a folder
   that isn't an absolute `*.avd`).
 - `herdr-app check ~/.config/herdr-app/mods/devices` passes and `herdr-app
   status` shows `"errors": []` with the panel open.

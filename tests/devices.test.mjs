@@ -223,11 +223,47 @@ test("Run Maestro flow: booted rows only, menu only", () => {
   assert.ok(!D.hoverActions(sim, null).some((a) => a.action === "maestro"));
 });
 
-test("maestro argv passes the device and the path as positional arguments", () => {
+test("Run <flow> again: under Run Maestro flow when the folder has a last flow", () => {
+  const sim = { kind: "sim", id: "U", state: "on" }, avd = { kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "a", state: "on" };
+  const names = (d, o) => D.actionsFor(d, o).map((a) => a.action);
+  assert.deepEqual(names(sim, { lastFlow: "/p/.maestro/auth/onboarding-existing-budget.yaml" }), ["shutdown", "screenshot", "openurl", "maestro", "maestroAgain", "copy", "erase"]);
+  assert.deepEqual(D.actionsFor(avd, { lastFlow: "/p/.maestro/login.yml" }).find((a) => a.action === "maestroAgain"), { action: "maestroAgain", label: "Run login again", icon: "flask", path: "/p/.maestro/login.yml" });
+  assert.equal(D.actionsFor(sim, { lastFlow: "/p/.maestro/onboarding-existing-budget.yaml" })[4].label, "Run onboarding-existing-budget again");
+  assert.deepEqual(names(sim, {}), names(sim));
+  assert.ok(!names({ ...sim, state: "off" }, { lastFlow: "/p/a.yaml" }).includes("maestroAgain"));
+  assert.ok(!names({ kind: "ios", id: "I", state: "on" }, { lastFlow: "/p/a.yaml" }).includes("maestroAgain"));
+});
+
+test("maestro argv passes the device, the path and the variables as positional arguments", () => {
   const argv = D.maestroArgv({ id: "UDID-1" }, "/p/.maestro dir/$x");
   assert.deepEqual(argv, ["sh", "-c", argv[2], "sh", "UDID-1", "/p/.maestro dir/$x"]);
-  assert.ok(!argv[2].includes("UDID-1") && !argv[2].includes(".maestro"));
-  assert.ok(argv[2].startsWith('maestro --device "$1" test "$2";') && argv[2].endsWith('exec "${SHELL:-sh}" -l'));
+  assert.deepEqual(D.maestroArgv({ id: "UDID-1" }, "/p/f.yaml", ["A=1", "THEME=$(rm)"]).slice(3), ["sh", "UDID-1", "/p/f.yaml", "-e", "A=1", "-e", "THEME=$(rm)"]);
+  assert.ok(!argv[2].includes("UDID-1") && !argv[2].includes("maestro dir") && !argv[2].includes("THEME"));
+  assert.ok(argv[2].startsWith('dev=$1; flow=$2; shift 2; maestro --device "$dev" test "$@" "$flow";') && argv[2].endsWith('exec "${SHELL:-sh}" -l'));
+  assert.ok(argv[2].includes("[maestro exited %s]") && argv[2].includes("debug output: %s") && argv[2].includes('ls -td "$HOME"/.maestro/tests/*/'));
+});
+
+test("maestro variables: KEY=VALUE words, anything else refused", () => {
+  assert.deepEqual(D.parseVars(""), []);
+  assert.deepEqual(D.parseVars("   "), []);
+  assert.deepEqual(D.parseVars(" REVIEW_THEME=Dark  _x=  URL=https://a/b?c=d "), ["REVIEW_THEME=Dark", "_x=", "URL=https://a/b?c=d"]);
+  assert.equal(D.parseVars("REVIEW_THEME=Dark oops"), null);
+  assert.equal(D.parseVars("1A=b"), null);
+  assert.equal(D.parseVars("=b"), null);
+  assert.equal(D.parseVars("A-B=c"), null);
+});
+
+test("maestro pane: the device's, by name or by its maestro argv", () => {
+  const d = { id: "UDID-1", name: "iPhone 17" };
+  const argv = (id, script = 'maestro --device "$1" test "$2"; exec sh') => ["sh", "-c", script, "sh", id, "/p/f.yaml"];
+  assert.ok(D.isMaestroPane({ address: "t1", name: "maestro · iPhone 17", state: "live" }, d));
+  assert.ok(D.isMaestroPane({ address: "t1", name: null, argv: argv("UDID-1"), state: "live" }, d));
+  assert.ok(D.isMaestroPane({ address: "t1", argv: D.maestroArgv(d, "/p/f.yaml", ["A=1"]) }, d));
+  assert.ok(!D.isMaestroPane({ address: "t1", argv: argv("UDID-2") }, d));
+  assert.ok(!D.isMaestroPane({ address: "t1", name: "maestro · iPhone 16", argv: ["zsh"] }, d));
+  assert.ok(!D.isMaestroPane({ address: "t1", name: "maestro · iPhone 17", state: "finished" }, d));
+  assert.ok(!D.isMaestroPane({ address: "t1" }, d));
+  assert.ok(!D.isMaestroPane(null, d));
 });
 
 test("flows default: the .maestro folder when there is one, else the folder", () => {
@@ -235,6 +271,20 @@ test("flows default: the .maestro folder when there is one, else the folder", ()
   assert.equal(D.flowsDefault("/p", false), "/p");
   assert.equal(D.flowsDefault(null, true), "");
   assert.equal(D.flowsDefault(null, false), "");
+});
+
+test("maestro flows: find's paths as picker rows", () => {
+  const out = ["/p/.maestro/Signup.yaml", "/p/.maestro/config.yaml", "/p/.maestro/auth/logout.yml", "/p/.maestro/auth/config.yaml", "/p/.maestro/auth/Login.yaml", "/p/.maestro/checkout.yml", "/p/.maestro-old/a.yaml", "/elsewhere/b.yaml", ""];
+  assert.deepEqual(D.flowRows("/p/.maestro", out), [
+    { label: "checkout", sub: "", path: "/p/.maestro/checkout.yml" },
+    { label: "Signup", sub: "", path: "/p/.maestro/Signup.yaml" },
+    { label: "config", sub: "auth/", path: "/p/.maestro/auth/config.yaml" },
+    { label: "Login", sub: "auth/", path: "/p/.maestro/auth/Login.yaml" },
+    { label: "logout", sub: "auth/", path: "/p/.maestro/auth/logout.yml" },
+  ]);
+  assert.deepEqual(D.flowRows("/p/.maestro/", ["/p/.maestro/a/b/deep.yaml", "/p/.maestro/config.yml"]), [{ label: "deep", sub: "a/b/", path: "/p/.maestro/a/b/deep.yaml" }]);
+  assert.deepEqual(D.flowRows("/p/.maestro", [""]), []);
+  assert.deepEqual(D.findFlowsArgv("/p/.maestro"), ["find", "-H", "/p/.maestro", "-maxdepth", "4", "-type", "f", "(", "-name", "*.yaml", "-o", "-name", "*.yml", ")"]);
 });
 
 test("commands are argument lists", () => {
