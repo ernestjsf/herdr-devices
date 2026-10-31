@@ -139,10 +139,11 @@ export function errorLine(r) {
   return lines.find((l) => !l.startsWith("An error was encountered processing the command")) ?? `exit code ${r.code}`;
 }
 
-// ~/Desktop/<name>-20261031-142501.png
+// ~/Desktop/<name>-20261031-142501-042.png (milliseconds last, so two in one
+// second don't collide)
 export function screenshotPath(home, name, date) {
-  const p = (n) => String(n).padStart(2, "0");
-  const stamp = `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  const stamp = `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}-${p(date.getMilliseconds(), 3)}`;
   return `${home}/Desktop/${name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "device"}-${stamp}.png`;
 }
 
@@ -152,8 +153,6 @@ export const validUrl = (url) => /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/.test(url.trim()
 // `adb shell` joins its arguments into one command line for the device's
 // shell, so a value must be quoted for that shell.
 const deviceQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
-
-const REMOTE_SHOT = "/sdcard/herdr-devices-shot.png";
 
 // Where a detached emulator's output goes: $TMPDIR/herdr-devices-<avd>.log,
 // else the user's own cache folder (never the shared /tmp, where a predictable
@@ -201,10 +200,12 @@ export function stepsFor(action, d, x) {
         : [{ argv: ["sh", "-c", DETACH, "sh", x.log, x.emulator, "-avd", d.avd] }];
     case "shutdown":
       return sim ? [{ argv: ["xcrun", "simctl", "shutdown", d.id] }] : [{ argv: adb("emu", "kill") }];
-    case "screenshot":
-      return sim
-        ? [{ argv: ["xcrun", "simctl", "io", d.id, "screenshot", x.path] }]
-        : [{ argv: adb("shell", "screencap", "-p", REMOTE_SHOT) }, { argv: adb("pull", REMOTE_SHOT, x.path) }, { argv: adb("shell", "rm", "-f", REMOTE_SHOT), ok: "any" }];
+    case "screenshot": {
+      if (sim) return [{ argv: ["xcrun", "simctl", "io", d.id, "screenshot", x.path] }];
+      // Named after the Desktop file (its characters are shell-safe), so it carries the same stamp.
+      const remote = `/sdcard/herdr-devices-${x.path.split("/").pop()}`;
+      return [{ argv: adb("shell", "screencap", "-p", remote) }, { argv: adb("pull", remote, x.path) }, { argv: adb("shell", "rm", "-f", remote), ok: "any" }];
+    }
     case "openurl":
       return sim
         ? [{ argv: ["xcrun", "simctl", "openurl", d.id, x.url] }]

@@ -114,7 +114,7 @@ test("a tool none of whose paths started counts as missing for a minute", () => 
 });
 
 test("screenshot path and url check", () => {
-  assert.equal(D.screenshotPath("/Users/me", "iPhone 17 Pro (B)", new Date(2026, 9, 31, 14, 5, 9)), "/Users/me/Desktop/iPhone-17-Pro-B-20261031-140509.png");
+  assert.equal(D.screenshotPath("/Users/me", "iPhone 17 Pro (B)", new Date(2026, 9, 31, 14, 5, 9, 42)), "/Users/me/Desktop/iPhone-17-Pro-B-20261031-140509-042.png");
   assert.ok(D.validUrl("https://example.com/a?b=1&c=2"));
   assert.ok(D.validUrl("myapp://open/item/3"));
   assert.ok(!D.validUrl("example.com"));
@@ -140,7 +140,8 @@ test("commands are argument lists", () => {
   assert.deepEqual(D.stepsFor("boot", avd, x), [{ argv: ["sh", "-c", 'log=$1; shift; mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 2>&1 &', "sh", "/tmp/herdr-devices-parity-api36.log", "/sdk/emulator", "-avd", "parity-api36"] }]);
   assert.deepEqual(D.stepsFor("shutdown", avd, x), [{ argv: ["/sdk/adb", "-s", "emulator-5554", "emu", "kill"] }]);
   assert.deepEqual(D.stepsFor("screenshot", sim, x), [{ argv: ["xcrun", "simctl", "io", "UDID-1", "screenshot", "/Users/me/Desktop/a.png"] }]);
-  assert.deepEqual(D.stepsFor("screenshot", avd, x).map((s) => s.argv.slice(3)), [["shell", "screencap", "-p", "/sdcard/herdr-devices-shot.png"], ["pull", "/sdcard/herdr-devices-shot.png", "/Users/me/Desktop/a.png"], ["shell", "rm", "-f", "/sdcard/herdr-devices-shot.png"]]);
+  const shot = { ...x, path: "/Users/me/Desktop/Pixel-9-20261031-140509-042.png" }, remote = "/sdcard/herdr-devices-Pixel-9-20261031-140509-042.png";
+  assert.deepEqual(D.stepsFor("screenshot", avd, shot).map((s) => s.argv.slice(3)), [["shell", "screencap", "-p", remote], ["pull", remote, shot.path], ["shell", "rm", "-f", remote]]);
   assert.deepEqual(D.stepsFor("openurl", sim, x), [{ argv: ["xcrun", "simctl", "openurl", "UDID-1", "https://x.test/?a=1&b='2'"] }]);
   // adb shell hands its words to the device's shell: the URL arrives single-quoted.
   assert.equal(D.stepsFor("openurl", avd, x)[0].argv.at(-1), `'https://x.test/?a=1&b='\\''2'\\'''`);
