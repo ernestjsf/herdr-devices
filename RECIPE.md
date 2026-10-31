@@ -9,7 +9,7 @@ behind a confirm dialog. Booting and stopping show as a spinning ring until the
 device gets there. It fills a side panel (a Devices button beside Files and
 Changes) or a pane.
 
-![Devices](preview.png)
+![Devices](docs/preview.png)
 
 
 ## What you see

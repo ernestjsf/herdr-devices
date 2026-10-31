@@ -4,7 +4,7 @@ A Devices panel for the [Herdr](https://herdr.dev) desktop app: your iOS
 simulators and Android emulators and phones, most recently used first, with
 the everyday actions one click away.
 
-<img src="preview.png" width="464" alt="The Devices panel: an iOS 26.5 section with two booted simulators running apps and one booting, an iOS 18.5 section, and an Android section with a booted emulator, a phone over USB and an AVD">
+<img src="docs/preview.png" width="464" alt="The Devices panel: an iOS 26.5 section with two booted simulators running apps and one booting, an iOS 18.5 section, and an Android section with a booted emulator, a phone over USB and an AVD">
 
 ## What you get
 
