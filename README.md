@@ -27,18 +27,18 @@ Hover for Boot or Shut down, Screenshot and More. Right-click for the full menu.
 | Screenshot | `simctl io screenshot`             | `adb shell screencap`, `adb pull`                    |
 | Copy id    | UDID                               | serial, or the AVD name when off                     |
 | Open URL…  | `simctl openurl`                   | `adb shell am start -a android.intent.action.VIEW`   |
-| Run Maestro flow… | opens a terminal pane running `maestro --device <UDID> test <path>` | same, with the serial |
+| Run Maestro flow… | opens a terminal pane running `maestro --device <UDID> test <path>` | emulators only, with the serial |
 | Copy app id | the running app's bundle id       | its package name                                     |
 | Stop *app* | `simctl terminate`                 | `adb shell am force-stop`                            |
 | Erase…     | `simctl erase` (factory reset)     | deletes the AVD's `snapshots/`, boots it once with `emulator -wipe-data -no-snapshot -no-window`, stops it when booted |
 
 Menu-only actions:
 
-- **Run Maestro flow…** needs a booted device. It asks for a flow path, prefilled with the tab's `.maestro` folder, or its folder when there is none, then opens a terminal pane below running `maestro`. The pane stays open as a shell afterwards.
+- **Run Maestro flow…** is available only on booted simulators and emulators. It asks for a flow path, prefilled with the tab's `.maestro` folder, or its folder when there is none, then opens a terminal pane below running `maestro`. The pane stays open as a shell afterwards.
 - **Copy app id** and **Stop** need a known running app. With several iOS apps running, the menu offers Stop for each.
 - **Erase…** asks first. An AVD is erased only while off.
 
-A connected iPhone or iPad offers only Open URL…, Run Maestro flow… and Copy UDID. Open URL opens in Safari, so custom schemes like `myapp://` don't resolve. No boot, screenshot or erase.
+A connected iPhone or iPad offers only Open URL… and Copy UDID. Open URL opens in Safari, so custom schemes like `myapp://` don't resolve. No boot, screenshot or erase.
 
 Screenshots go to `~/Desktop/<device>-<YYYYMMDD-HHMMSS>-<ms>.png`.
 

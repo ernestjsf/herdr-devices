@@ -272,7 +272,8 @@ export function actionsFor(d) {
   } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
   // devicectl has no screenshot.
   if (on && d.kind !== "ios") list.push({ action: "screenshot", label: "Screenshot", icon: "camera" });
-  if (on) list.push({ action: "openurl", label: "Open URL…", icon: "link" }, { action: "maestro", label: "Run Maestro flow…", icon: "flask" });
+  if (on) list.push({ action: "openurl", label: "Open URL…", icon: "link" });
+  if (on && (d.kind === "sim" || d.kind === "avd")) list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask" });
   if (on && d.apps?.length) {
     list.push({ action: "copyapp", label: "Copy app id", icon: "copy" });
     for (const app of d.apps) list.push({ action: "stop", label: `Stop ${appSegment(app)}`, icon: "square", app });

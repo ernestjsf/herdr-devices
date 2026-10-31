@@ -106,8 +106,8 @@ action button reads `Working…` while it runs.
   names becomes a space) in the section titled `<platform> <osVersionNumber>`,
   created and sorted in with the simulators'. Click does nothing; the menu has
   Open URL… (`xcrun devicectl device process launch --device <udid>
-  com.apple.mobilesafari --payload-url <url>`, Safari only), Run Maestro flow…
-  and Copy UDID. No apps are asked for.
+  com.apple.mobilesafari --payload-url <url>`, Safari only) and Copy UDID.
+  No apps are asked for.
 - **Android**: every 5 s, after Refresh and after any action: `adb devices
   -l`, and for each running `emulator-NNNN` not named yet `adb -s <serial> emu
   avd name` (first line), all at once and not awaited (a hung one can't hold up
@@ -184,6 +184,7 @@ action button reads `Working…` while it runs.
     (`https://`, `myapp://`), then `xcrun simctl openurl <udid> <url>` or `adb
     -s <serial> shell am start -a android.intent.action.VIEW -d '<url>'` (the
     URL single-quoted for the device's shell, since `adb shell` joins its words).
+  - **Run Maestro flow…**: only on booted simulators and emulators.
   - **Erase…**: the dialog; Enter or Erase runs it. Simulator: `xcrun simctl
     shutdown` (failure ignored), then `xcrun simctl erase <udid>`; toasts
     `Erased <name>`. AVD: `adb devices -l` and the emulators' names are read

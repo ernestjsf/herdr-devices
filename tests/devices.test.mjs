@@ -197,11 +197,11 @@ test("actions per row", () => {
   assert.deepEqual(names({ kind: "sim", id: "U", state: "off" }), ["boot", "copy", "erase"]);
   assert.deepEqual(names({ kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "a", state: "on" }), ["shutdown", "screenshot", "openurl", "maestro", "copy"]);
   assert.deepEqual(names({ kind: "avd", id: "a", avd: "a", state: "off" }), ["boot", "copy", "erase"]);
-  assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screenshot", "openurl", "maestro", "copy"]);
+  assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screenshot", "openurl", "copy"]);
   assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "unauthorized" }), ["copy"]);
   // A device over devicectl: no boot, screenshot or erase.
   const ios = { kind: "ios", id: "00008120-0000000000000002", name: "iPhone", state: "on" };
-  assert.deepEqual(D.actionsFor(ios).map((a) => a.label), ["Open URL…", "Run Maestro flow…", "Copy UDID"]);
+  assert.deepEqual(D.actionsFor(ios).map((a) => a.label), ["Open URL…", "Copy UDID"]);
   assert.equal(D.actionsFor({ kind: "sim", id: "U", state: "off" }).find((a) => a.action === "erase").danger, true);
 });
 
@@ -210,7 +210,7 @@ test("copy app id and Stop: only for a booted device with an app, between Open U
   const sim = { kind: "sim", id: "U", state: "on", apps: ["com.example.budget", "com.example.notes"] };
   assert.deepEqual(labels(sim), ["Shut down", "Screenshot", "Open URL…", "Run Maestro flow…", "Copy app id", "Stop budget", "Stop notes", "Copy UDID", "Erase…"]);
   assert.deepEqual(D.actionsFor(sim).filter((a) => a.action === "stop").map((a) => a.app), ["com.example.budget", "com.example.notes"]);
-  assert.deepEqual(labels({ kind: "phone", id: "R5", serial: "R5", state: "on", apps: ["com.example.budget"] }), ["Screenshot", "Open URL…", "Run Maestro flow…", "Copy app id", "Stop budget", "Copy serial"]);
+  assert.deepEqual(labels({ kind: "phone", id: "R5", serial: "R5", state: "on", apps: ["com.example.budget"] }), ["Screenshot", "Open URL…", "Copy app id", "Stop budget", "Copy serial"]);
   assert.ok(!labels({ ...sim, apps: [] }).includes("Copy app id"));
   assert.ok(!labels({ ...sim, apps: undefined }).includes("Copy app id"));
   assert.ok(!labels({ ...sim, state: "off" }).includes("Stop budget"));
