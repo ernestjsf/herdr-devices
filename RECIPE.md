@@ -5,7 +5,7 @@ Herdr side panel, most recently used first. Click a device to boot it; hover for
 Shut down and Screenshot. The menu adds Open URL, Run Maestro flow, Copy id,
 Stop app and Erase. Each row shows the device's state and the app it is running.
 
-![Devices](docs/preview.png)
+![Devices](preview.png)
 
 
 ## What you see

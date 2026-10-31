@@ -4,7 +4,7 @@ Your iOS simulators, connected iPhones and Android emulators and phones in a
 side panel of the [Herdr](https://herdr.dev) desktop app, most recently used
 first, with the everyday actions one click away.
 
-<img src="docs/preview.png" width="464" alt="The Devices panel: iOS simulators grouped by runtime, two booted and running apps, and an Android section with a booted emulator and a phone over USB">
+<img src="preview.png" width="464" alt="The Devices panel: iOS simulators grouped by runtime, two booted and running apps, and an Android section with a booted emulator and a phone over USB">
 
 ## What you get
 
