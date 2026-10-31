@@ -1,7 +1,9 @@
 // The mod's parsing and command building, on output captured from macOS.
 // Fixtures: simctl-devices.json and adb-devices-empty.txt are real (home folder
 // renamed); the *-mixed, adb-emu-avd-name, launchctl-list and dumpsys-* files are trimmed or hand-written in the tools' exact formats (ids sanitized to com.example.*), since this machine
-// had no running emulator or phone. Run: node --test tests/
+// had no running emulator or phone. devicectl-list.json is that tool's JSON, trimmed (capabilities and
+// other unread fields dropped) with the names, ids and hostnames replaced and the connection states edited by hand: this machine's two paired
+// devices were both away, so one wired and one Wi-Fi device are made up. Run: node --test tests/
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -30,6 +32,31 @@ test("simctl: unavailable hidden, empty runtimes dropped, iOS newest first", () 
   assert.deepEqual(sections.map((s) => s.title), ["iOS 26.0", "iOS 18.2", "watchOS 11.2"]);
   assert.deepEqual(sections[1].devices.map((d) => d.name), ["iPhone 16"]);
   assert.equal(sections[0].devices.find((d) => d.name === "iPad Air").state, "booting");
+});
+
+test("devicectl: only the physical devices connected now, as rows", () => {
+  const rows = D.parseDevicectl(fixture("devicectl-list.json"));
+  assert.deepEqual(rows, [
+    { kind: "ios", id: "00008301-0000000000000001", name: "Apple Watch", state: "on", detail: "Wi-Fi", platform: "watchOS", version: "26.2", lastUsed: Date.UTC(2026, 9, 30, 9, 30) },
+    { kind: "ios", id: "00008120-0000000000000002", name: "iPhone", state: "on", detail: "USB", platform: "iOS", version: "27.0.1", lastUsed: Date.UTC(2026, 9, 30, 12, 11) },
+  ]);
+  // Wired counts even before the tunnel is up; virtual devices never show.
+  const json = JSON.parse(fixture("devicectl-list.json")), [watch, phone, away] = json.result.devices;
+  away.connectionProperties.transportType = "wired";
+  phone.hardwareProperties.reality = "virtual";
+  assert.deepEqual(D.parseDevicectl(JSON.stringify(json)).map((d) => d.name), ["Apple Watch", "Old iPhone"]);
+  assert.deepEqual(D.parseDevicectl('{"result":{"devices":[]}}'), []);
+  assert.throws(() => D.parseDevicectl("not json"));
+});
+
+test("devicectl rows join the simulators' sections, new ones sorted in", () => {
+  const sims = D.parseSimctl(fixture("simctl-devices-mixed.json")), phones = D.parseDevicectl(fixture("devicectl-list.json"));
+  const merged = D.mergeIos(sims, [...phones, { kind: "ios", id: "U", name: "Same OS", platform: "iOS", version: "18.2" }]);
+  assert.deepEqual(merged.map((s) => s.title), ["iOS 27.0.1", "iOS 26.0", "iOS 18.2", "watchOS 26.2", "watchOS 11.2"]);
+  assert.deepEqual(merged[2].devices.map((d) => d.name), ["iPhone 16", "Same OS"]);
+  assert.equal(sims.length, 3);
+  assert.deepEqual(D.mergeIos(sims, []), sims);
+  assert.deepEqual(D.mergeIos([], phones).map((s) => s.title), ["iOS 27.0.1", "watchOS 26.2"]);
 });
 
 test("avds: one per <name>.ini in the AVD home; only those changing re-list", () => {
@@ -172,6 +199,9 @@ test("actions per row", () => {
   assert.deepEqual(names({ kind: "avd", id: "a", avd: "a", state: "off" }), ["boot", "copy", "erase"]);
   assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screenshot", "openurl", "maestro", "copy"]);
   assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "unauthorized" }), ["copy"]);
+  // A device over devicectl: no boot, screenshot or erase.
+  const ios = { kind: "ios", id: "00008120-0000000000000002", name: "iPhone", state: "on" };
+  assert.deepEqual(D.actionsFor(ios).map((a) => a.label), ["Open URL…", "Run Maestro flow…", "Copy UDID"]);
   assert.equal(D.actionsFor({ kind: "sim", id: "U", state: "off" }).find((a) => a.action === "erase").danger, true);
 });
 
@@ -218,6 +248,10 @@ test("commands are argument lists", () => {
   const shot = { ...x, path: "/Users/me/Desktop/Pixel-9-20261031-140509-042.png" }, remote = "/sdcard/herdr-devices-Pixel-9-20261031-140509-042.png";
   assert.deepEqual(D.stepsFor("screenshot", avd, shot).map((s) => s.argv.slice(3)), [["shell", "screencap", "-p", remote], ["pull", remote, shot.path], ["shell", "rm", "-f", remote]]);
   assert.deepEqual(D.stepsFor("openurl", sim, x), [{ argv: ["xcrun", "simctl", "openurl", "UDID-1", "https://x.test/?a=1&b='2'"] }]);
+  // A device over devicectl opens it in Safari; its other actions are never offered.
+  const ios = { kind: "ios", id: "00008120-0000000000000002", name: "iPhone", state: "on" };
+  assert.deepEqual(D.stepsFor("openurl", ios, x), [{ argv: ["xcrun", "devicectl", "device", "process", "launch", "--device", "00008120-0000000000000002", "com.apple.mobilesafari", "--payload-url", "https://x.test/?a=1&b='2'"] }]);
+  for (const action of ["boot", "shutdown", "screenshot", "stop", "erase"]) assert.throws(() => D.stepsFor(action, ios, x), /Unknown action/);
   // adb shell hands its words to the device's shell: the URL arrives single-quoted.
   assert.equal(D.stepsFor("openurl", avd, x)[0].argv.at(-1), `'https://x.test/?a=1&b='\\''2'\\'''`);
   assert.deepEqual(D.stepsFor("stop", sim, { ...x, app: "com.example.budget" }), [{ argv: ["xcrun", "simctl", "terminate", "UDID-1", "com.example.budget"] }]);
@@ -323,12 +357,17 @@ test("hover icons and the row click", () => {
   assert.equal(D.primaryAction({ kind: "avd", id: "p", avd: "p", state: "off" }), "boot");
   assert.equal(D.primaryAction({ kind: "avd", id: "e", serial: "e", avd: "p", state: "on" }), null);
   assert.equal(D.primaryAction({ kind: "phone", id: "R5", serial: "R5", state: "on" }), null);
+  assert.equal(D.primaryAction({ kind: "ios", id: "U", state: "on" }), null);
+  assert.deepEqual(names({ kind: "ios", id: "U", state: "on" }), ["more"]);
 });
 
 test("footer", () => {
-  const android = [{ kind: "avd" }, { kind: "phone" }];
-  assert.equal(D.footerText([1, 2, 3, 4, 5], android, 1000, 4000), "5 simulators · 1 emulator · 1 device · refreshed 0s ago");
-  assert.equal(D.footerText([1], [], 1000, 1000 + 25000), "1 simulator · refreshed 20s ago");
+  const android = [{ kind: "avd" }, { kind: "phone" }], sims = (n) => Array.from({ length: n }, () => ({ kind: "sim" }));
+  assert.equal(D.footerText(sims(5), android, 1000, 4000), "5 simulators · 1 emulator · 1 device · refreshed 0s ago");
+  // iOS phones count as devices next to the Android ones.
+  assert.equal(D.footerText([...sims(2), { kind: "ios" }], android, 1000, 1000), "2 simulators · 1 emulator · 2 devices · refreshed 0s ago");
+  assert.equal(D.footerText([{ kind: "ios" }], [], 0, 5), "1 device");
+  assert.equal(D.footerText(sims(1), [], 1000, 1000 + 25000), "1 simulator · refreshed 20s ago");
   assert.equal(D.footerText([], [], 0, 5), "No devices");
   assert.match(D.footerText([], [], 1, 1 + 125000), /^No devices · refreshed 2m ago$/);
 });
@@ -337,6 +376,6 @@ test("row icon by name", () => {
   const icons = (...names) => names.map((name) => D.deviceIcon({ name }));
   assert.deepEqual(icons("iPhone 17 Pro", "Pixel_9_Pro_API_36", "SM-S928B"), ["smartphone", "smartphone", "smartphone"]);
   assert.deepEqual(icons("iPad Pro 13-inch (M5)", "Pixel_Tablet_API_35", "Pixel Fold"), ["tablet", "tablet", "tablet"]);
-  assert.deepEqual(icons("Apple Watch Series 11", "Wear_OS_Large_Round"), ["watch", "watch"]);
+  assert.deepEqual(icons("Apple Watch Series 11", "Wear_OS_Large_Round", "Apple Watch"), ["watch", "watch", "watch"]);
   assert.deepEqual(icons("Apple TV 4K (3rd generation)", "Television_1080p_API_34", "Apple Vision Pro"), ["tv", "tv", "glasses"]);
 });

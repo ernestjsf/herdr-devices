@@ -67,9 +67,9 @@ class Panel {
         for (;;) if (avdListChanged(await watchFolder(dir))) { forgetAvds(); this.reload(cx, "android"); }
       } catch {} // no AVD home: each read lists it again until there is one
     });
-    // Simulators: their device.plist changes on boot and shutdown; the slow
-    // poll is the safety net.
-    cx.timer.every(15000, (cx) => this.reload(cx, "ios"));
+    // Simulators: their device.plist changes on boot and shutdown. Phones can
+    // only be polled, and the poll is the simulators' safety net too.
+    cx.timer.every(5000, (cx) => this.reload(cx, "ios"));
     cx.timer.every(10000, (cx) => cx.notify()); // the footer's "refreshed …s ago"
     cx.spawn(async (cx) => {
       try {
@@ -253,7 +253,6 @@ class Panel {
         : devices.length ? null : { text: "No emulators or devices", link: LINKS.studio };
       body.push(...this.section("Android", devices, empty, c));
     }
-    const sims = (this.ios?.sections ?? []).flatMap((s) => s.devices);
     const working = this.spinning > 0 || this.busy > 0;
     return v_flex().id("root").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13)
@@ -265,7 +264,7 @@ class Panel {
           .child(working ? svg(SPINNER).size(14).text_color(t.muted).spin(900) : svg(icon("refresh")).size(14).text_color(t.muted))))
       .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().children(body))
       .when(!rail, (el) => el.child(h_flex().h(28).flex_none().px(14).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
-        .child(div().min_w(0).truncate().child(footerText(sims, this.android?.devices ?? [], this.refreshedAt, Date.now())))));
+        .child(div().min_w(0).truncate().child(footerText(this.rows("ios"), this.android?.devices ?? [], this.refreshedAt, Date.now())))));
   }
 }
 
@@ -368,7 +367,7 @@ class Dialog {
     const detail = maestro
       ? `Opens a pane below running maestro --device ${d.id} test <path>.`
       : !erase
-      ? `Opens it on ${d.name}${d.kind === "sim" ? " (xcrun simctl openurl)" : " (am start -a android.intent.action.VIEW)"}.`
+      ? `Opens it on ${d.name} (${d.kind === "sim" ? "xcrun simctl openurl" : d.kind === "ios" ? "xcrun devicectl, in Safari" : "am start -a android.intent.action.VIEW"}).`
       : d.kind === "sim"
         ? `Shuts it down and resets it to factory state: every app and its data goes. ${d.name} stays in the list.`
         : `Deletes its snapshots/, then boots it once without a window with the emulator's -wipe-data and stops it. It starts like a new device.`;

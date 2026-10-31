@@ -21,6 +21,11 @@ export function parseSimctl(json) {
     const devices = list.filter((d) => d.isAvailable).map((d) => ({ kind: "sim", id: d.udid, name: d.name, state: simState(d.state), detail, lastUsed: Date.parse(d.lastBootedAt ?? "") || 0 }));
     if (devices.length) sections.push({ title, devices });
   }
+  return sortSections(sections);
+}
+
+// iOS first, then watchOS, tvOS, visionOS; newest version first.
+function sortSections(sections) {
   const rank = (title) => {
     const [os, version] = title.split(" ");
     const i = OS_ORDER.indexOf(os);
@@ -32,6 +37,32 @@ export function parseSimctl(json) {
     for (let k = 0; k < Math.max(av.length, bv.length); k++) if ((av[k] ?? 0) !== (bv[k] ?? 0)) return (bv[k] ?? 0) - (av[k] ?? 0);
     return 0;
   });
+}
+
+// `xcrun devicectl list devices --json-output` -> the physical devices
+// connected now, as rows. devicectl also lists every paired device that is
+// away, so those are dropped, like adb only lists the phones it sees.
+export function parseDevicectl(json) {
+  return JSON.parse(json).result.devices
+    .filter((d) => d.hardwareProperties.reality === "physical" && (d.connectionProperties.transportType === "wired" || d.connectionProperties.tunnelState === "connected"))
+    .map((d) => ({
+      kind: "ios", id: d.hardwareProperties.udid, name: d.deviceProperties.name.replaceAll("\u00a0", " "), state: "on",
+      detail: d.connectionProperties.transportType === "wired" ? "USB" : "Wi-Fi",
+      platform: d.hardwareProperties.platform, version: d.deviceProperties.osVersionNumber,
+      lastUsed: Date.parse(d.connectionProperties.lastConnectionDate ?? "") || 0,
+    }));
+}
+
+// Each phone goes in the section titled like its simulators' runtime, a new one if none.
+export function mergeIos(sections, phones) {
+  const out = sections.map((s) => ({ ...s, devices: [...s.devices] }));
+  for (const p of phones) {
+    const title = `${p.platform} ${p.version}`;
+    let s = out.find((x) => x.title === title);
+    if (!s) out.push((s = { title, devices: [] }));
+    s.devices.push(p);
+  }
+  return sortSections(out);
 }
 
 // The AVD home's files -> AVD names: each AVD has a <name>.ini there (names
@@ -239,12 +270,14 @@ export function actionsFor(d) {
     if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
     else if (d.state === "off") list.push({ action: "boot", label: "Boot", icon: "play" });
   } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
-  if (on) list.push({ action: "screenshot", label: "Screenshot", icon: "camera" }, { action: "openurl", label: "Open URL…", icon: "link" }, { action: "maestro", label: "Run Maestro flow…", icon: "flask" });
+  // devicectl has no screenshot.
+  if (on && d.kind !== "ios") list.push({ action: "screenshot", label: "Screenshot", icon: "camera" });
+  if (on) list.push({ action: "openurl", label: "Open URL…", icon: "link" }, { action: "maestro", label: "Run Maestro flow…", icon: "flask" });
   if (on && d.apps?.length) {
     list.push({ action: "copyapp", label: "Copy app id", icon: "copy" });
     for (const app of d.apps) list.push({ action: "stop", label: `Stop ${appSegment(app)}`, icon: "square", app });
   }
-  list.push({ action: "copy", label: d.kind === "sim" ? "Copy UDID" : d.serial ? "Copy serial" : "Copy name", icon: "copy" });
+  list.push({ action: "copy", label: d.kind === "sim" || d.kind === "ios" ? "Copy UDID" : d.serial ? "Copy serial" : "Copy name", icon: "copy" });
   // An AVD is erased by booting it once with -wipe-data, so only while it's off.
   if (d.kind === "sim" || (d.kind === "avd" && d.avd && d.state === "off")) list.push({ action: "erase", label: "Erase…", icon: "trash", danger: true });
   return list;
@@ -264,6 +297,11 @@ export const flowsDefault = (cwd, hasDotMaestro) => (!cwd ? "" : hasDotMaestro ?
 // row's phase from that step on. `x` carries the tool
 // paths (adb, emulator), the screenshot path, the URL and the AVD's folder.
 export function stepsFor(action, d, x) {
+  // A device over devicectl: Safari opens the URL; nothing else is offered.
+  if (d.kind === "ios") {
+    if (action === "openurl") return [{ argv: ["xcrun", "devicectl", "device", "process", "launch", "--device", d.id, "com.apple.mobilesafari", "--payload-url", x.url] }];
+    throw new Error(`Unknown action: ${action}`);
+  }
   const sim = d.kind === "sim";
   const adb = (...args) => [x.adb, "-s", d.serial, ...args];
   switch (action) {
@@ -312,7 +350,7 @@ export function sortRecent(devices, used = {}) {
   return devices.map((d, i) => [d, i]).sort(([a, i], [b, j]) => at(b) - at(a) || i - j).map(([d]) => d);
 }
 
-const PLATFORM_KEYS = { ios: ["sim:"], android: ["avd:", "phone:"] };
+const PLATFORM_KEYS = { ios: ["sim:", "ios:"], android: ["avd:", "phone:"] };
 
 // devices.used after a read of one platform (`prev`, `next`: its rows before
 // and now; no `prev` on the first read): a device that came on since (listed,
@@ -393,8 +431,9 @@ const ago = (ms) => (ms < 60000 ? `${Math.max(0, Math.floor(ms / 10000) * 10)}s 
 
 // "5 simulators · 1 emulator · refreshed 10s ago": only the kinds there are;
 // "No devices" when none.
-export function footerText(sims, android, refreshedAt, now) {
-  const kinds = [[sims.length, "simulator"], [android.filter((d) => d.kind === "avd").length, "emulator"], [android.filter((d) => d.kind === "phone").length, "device"]];
+export function footerText(ios, android, refreshedAt, now) {
+  const n = (rows, kind) => rows.filter((d) => d.kind === kind).length;
+  const kinds = [[n(ios, "sim"), "simulator"], [n(android, "avd"), "emulator"], [n(android, "phone") + n(ios, "ios"), "device"]];
   const parts = kinds.filter(([n]) => n > 0).map(([n, word]) => count(n, word));
   if (!parts.length) parts.push("No devices");
   if (refreshedAt) parts.push(`refreshed ${ago(now - refreshedAt)}`);

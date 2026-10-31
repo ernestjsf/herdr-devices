@@ -1,0 +1,139 @@
+{
+  "info": {
+    "arguments": [
+      "devicectl",
+      "list",
+      "devices",
+      "-q",
+      "--json-output",
+      "/dev/stdout",
+      "--timeout",
+      "5"
+    ],
+    "commandType": "devicectl.list.devices",
+    "jsonVersion": 3,
+    "outcome": "success",
+    "version": "518.33"
+  },
+  "result": {
+    "devices": [
+      {
+        "connectionProperties": {
+          "authenticationType": "manualPairing",
+          "isMobileDeviceOnly": false,
+          "lastConnectionDate": "2026-10-30T09:30:00.000Z",
+          "pairingState": "paired",
+          "potentialHostnames": [
+            "Apple-Watch.coredevice.local",
+            "11111111-2222-4333-8444-555555555551.coredevice.local"
+          ],
+          "transportType": "localNetwork",
+          "tunnelState": "connected",
+          "tunnelTransportProtocol": "tcp"
+        },
+        "deviceProperties": {
+          "ddiServicesAvailable": false,
+          "developerModeStatus": "enabled",
+          "hasInternalOSBuild": false,
+          "name": "Apple Watch",
+          "osBuildUpdate": "24A000",
+          "osVersionNumber": "26.2",
+          "screenViewingURL": "devices://device/open?id=11111111-2222-4333-8444-555555555551"
+        },
+        "hardwareProperties": {
+          "deviceType": "appleWatch",
+          "ecid": 1001,
+          "hardwareModel": "N199AP",
+          "isProductionFused": true,
+          "marketingName": "Apple Watch Ultra",
+          "platform": "watchOS",
+          "productType": "Watch6,18",
+          "reality": "physical",
+          "serialNumber": "WATCHSER01",
+          "udid": "00008301-0000000000000001"
+        },
+        "identifier": "11111111-2222-4333-8444-555555555551",
+        "tags": [],
+        "visibilityClass": "default"
+      },
+      {
+        "connectionProperties": {
+          "authenticationType": "manualPairing",
+          "isMobileDeviceOnly": false,
+          "lastConnectionDate": "2026-10-30T12:11:00.000Z",
+          "pairingState": "paired",
+          "potentialHostnames": [
+            "iPhone.coredevice.local",
+            "11111111-2222-4333-8444-555555555552.coredevice.local"
+          ],
+          "transportType": "wired",
+          "tunnelState": "connected",
+          "tunnelTransportProtocol": "tcp"
+        },
+        "deviceProperties": {
+          "ddiServicesAvailable": false,
+          "developerModeStatus": "enabled",
+          "hasInternalOSBuild": false,
+          "name": "iPhone",
+          "osBuildUpdate": "24A000",
+          "osVersionNumber": "27.0.1",
+          "screenViewingURL": "devices://device/open?id=11111111-2222-4333-8444-555555555552"
+        },
+        "hardwareProperties": {
+          "deviceType": "iPhone",
+          "ecid": 1002,
+          "hardwareModel": "D93AP",
+          "isProductionFused": true,
+          "marketingName": "iPhone 16 Pro",
+          "platform": "iOS",
+          "productType": "iPhone17,1",
+          "reality": "physical",
+          "serialNumber": "PHONESER02",
+          "udid": "00008120-0000000000000002"
+        },
+        "identifier": "11111111-2222-4333-8444-555555555552",
+        "tags": [],
+        "visibilityClass": "default"
+      },
+      {
+        "connectionProperties": {
+          "authenticationType": "manualPairing",
+          "isMobileDeviceOnly": false,
+          "lastConnectionDate": "2026-06-16T14:08:00.000Z",
+          "pairingState": "paired",
+          "potentialHostnames": [
+            "Old-iPhone.coredevice.local",
+            "11111111-2222-4333-8444-555555555553.coredevice.local"
+          ],
+          "transportType": "localNetwork",
+          "tunnelState": "disconnected",
+          "tunnelTransportProtocol": "tcp"
+        },
+        "deviceProperties": {
+          "ddiServicesAvailable": false,
+          "developerModeStatus": "enabled",
+          "hasInternalOSBuild": false,
+          "name": "Old iPhone",
+          "osBuildUpdate": "24A000",
+          "osVersionNumber": "18.5",
+          "screenViewingURL": "devices://device/open?id=11111111-2222-4333-8444-555555555553"
+        },
+        "hardwareProperties": {
+          "deviceType": "iPhone",
+          "ecid": 1003,
+          "hardwareModel": "D16AP",
+          "isProductionFused": true,
+          "marketingName": "iPhone 13",
+          "platform": "iOS",
+          "productType": "iPhone14,5",
+          "reality": "physical",
+          "serialNumber": "PHONESER03",
+          "udid": "00008110-0000000000000003"
+        },
+        "identifier": "11111111-2222-4333-8444-555555555553",
+        "tags": [],
+        "visibilityClass": "default"
+      }
+    ]
+  }
+}

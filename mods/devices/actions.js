@@ -129,6 +129,10 @@ function withApps(devices) {
 
 // { sections, error }
 export async function loadIos() {
+  // Phones are optional (older Xcode has no devicectl): any failure means none.
+  const phones = tool("xcrun", ["devicectl", "list", "devices", "-q", "--json-output", "/dev/stdout", "--timeout", "5"])
+    .then((r) => (r?.code === 0 ? D.parseDevicectl(r.stdout) : []))
+    .catch(() => []);
   let sims;
   try { sims = await tool("xcrun", ["simctl", "list", "devices", "-j"]); } catch (e) { return { sections: [], error: D.rejectionLine(e, "simctl list") }; }
   if (!sims) return { sections: [], error: "xcrun not found" };
@@ -136,7 +140,7 @@ export async function loadIos() {
   try {
     const sections = D.parseSimctl(sims.stdout);
     withApps(sections.flatMap((s) => s.devices));
-    return { sections, error: null };
+    return { sections: D.mergeIos(sections, await phones), error: null };
   } catch { return { sections: [], error: "simctl printed something unreadable" }; }
 }
 
@@ -253,7 +257,7 @@ export async function perform(action, d, { url, app } = {}) {
   if (action === "boot" || action === "shutdown") phase(action === "boot" ? "booting" : "stopping");
   try {
     const x = { url, app, path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
-    if (d.kind !== "sim") {
+    if (d.kind === "avd" || d.kind === "phone") {
       x.adb = await toolPath("adb");
       const launch = action === "boot" || action === "erase";
       if (launch) { x.emulator = await toolPath("emulator"); x.log = await emulatorLog(d.avd); }
