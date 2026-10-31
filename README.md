@@ -43,7 +43,7 @@ Menu-only actions:
 - **Copy app id** and **Stop** need a known running app. With several iOS apps running, the menu offers Stop for each.
 - **Erase…** asks first. An AVD is erased only while off.
 
-A connected iPhone or iPad offers only Open URL… and Copy UDID. Open URL opens in Safari, so custom schemes like `myapp://` don't resolve. No boot, screenshot or erase.
+A connected iPhone or iPad offers only Open URL…, Run Maestro flow… and Copy UDID. Open URL opens in Safari, so custom schemes like `myapp://` don't resolve. No boot, screenshot or erase.
 
 Screenshots go to `~/Desktop/<device>-<YYYYMMDD-HHMMSS>-<ms>.png`.
 

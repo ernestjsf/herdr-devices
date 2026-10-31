@@ -274,7 +274,7 @@ export function actionsFor(d, { lastFlow } = {}) {
   // devicectl has no screenshot.
   if (on && d.kind !== "ios") list.push({ action: "screenshot", label: "Screenshot", icon: "camera" });
   if (on) list.push({ action: "openurl", label: "Open URL…", icon: "link" });
-  if (on && (d.kind === "sim" || d.kind === "avd")) {
+  if (on) {
     list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask" });
     if (lastFlow) list.push({ action: "maestroAgain", label: `Run ${lastFlow.split("/").pop().replace(/\.ya?ml$/, "")} again`, icon: "flask", path: lastFlow });
   }

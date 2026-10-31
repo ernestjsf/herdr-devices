@@ -186,7 +186,7 @@ action button reads `Working…` while it runs.
     (`https://`, `myapp://`), then `xcrun simctl openurl <udid> <url>` or `adb
     -s <serial> shell am start -a android.intent.action.VIEW -d '<url>'` (the
     URL single-quoted for the device's shell, since `adb shell` joins its words).
-  - **Run Maestro flow…**: only on booted simulators and emulators. The menu
+  - **Run Maestro flow…**: on any booted device, connected ones too. The menu
     row shows `Working…` while `maestroStart()`
     finds the tab's folder (the focused terminal's, else the tab's first with
     one, else home) and, when it has a `.maestro`, its flows (`find -H <dir>
