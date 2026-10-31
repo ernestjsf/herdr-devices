@@ -160,6 +160,19 @@ test("recents: lastBootedAt or this mod's own log, newest first, ties keep order
   assert.deepEqual(real.slice(0, 2).map((d) => d.name), ["iPhone 17 Pro B", "iPhone 17 Pro"]);
 });
 
+test("recents: a device that came on outside the panel counts; gone ones drop out", () => {
+  const used = { "sim:a": 1, "sim:gone": 2, "avd:p": 3 };
+  // b booted from a terminal (via "booting"); c was already on; a stayed off.
+  const prev = [sim("a", "off"), sim("b", "booting"), sim("c", "on")], next = [sim("a", "off"), sim("b", "on"), sim("c", "on")];
+  assert.deepEqual(D.updateUsed(used, "ios", prev, next, 50, true), { "sim:a": 1, "avd:p": 3, "sim:b": 50 });
+  // Partial read: nothing pruned. First read: nothing marked.
+  assert.deepEqual(D.updateUsed(used, "ios", prev, next, 50, false), { ...used, "sim:b": 50 });
+  assert.deepEqual(D.updateUsed(used, "ios", null, next, 50, false), used);
+  // An AVD keeps its key across its serial; the other platform's entries stay.
+  const off = { kind: "avd", id: "p", avd: "p", name: "p", state: "off" }, on = { kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "p", name: "p", state: "on" };
+  assert.deepEqual(D.updateUsed({ "sim:a": 1, "phone:R5": 2 }, "android", [off], [on], 60, true), { "sim:a": 1, "avd:p": 60 });
+});
+
 test("fold: three most recent plus anything not off; all shows everything", () => {
   const sorted = [sim("a", "off"), sim("b", "off"), sim("c", "off"), sim("d", "off"), sim("e", "on"), sim("f", "off"), sim("g", "booting")];
   const folded = D.foldRows(sorted);

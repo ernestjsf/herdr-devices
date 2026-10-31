@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec } from "herdr";
-import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, phaseOf, glyphOf, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
+import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, focus, perform, avdHome, forgetAvds } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
@@ -90,8 +90,13 @@ class Panel {
     if (shown) this.spinning++;
     cx.spawn(async (cx) => {
       try {
+        const prev = this[which] && this.rows(which);
         do { s.again = false; this[which] = await (which === "ios" ? loadIos() : loadAndroid()); } while (s.again);
         this.refreshedAt = Date.now();
+        // Read failed or partial: keep the recents it can't vouch for.
+        const used = shared("devices.used") ?? {}, complete = which === "ios" ? !this.ios.error : !this.android.notes.length;
+        const nextUsed = updateUsed(used, which, prev, this.rows(which), this.refreshedAt, complete);
+        if (JSON.stringify(nextUsed) !== JSON.stringify(used)) setShared("devices.used", nextUsed);
         store.set("cache", { ios: this.ios, android: this.android, at: this.refreshedAt });
         await this.settle();
       } finally {
@@ -104,7 +109,9 @@ class Panel {
 
   reloadAll(cx, shown) { this.reload(cx, "ios", shown); this.reload(cx, "android", shown); }
 
-  devices() { return [...(this.ios?.sections ?? []).flatMap((s) => s.devices), ...(this.android?.devices ?? [])]; }
+  rows(which) { return which === "ios" ? (this.ios?.sections ?? []).flatMap((s) => s.devices) : this.android?.devices ?? []; }
+
+  devices() { return [...this.rows("ios"), ...this.rows("android")]; }
 
   // Ends the booting / stopping phases that got where they were going, and an
   // AVD launch whose emulator exited (toasting the last line it printed).

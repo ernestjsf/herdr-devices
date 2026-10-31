@@ -230,6 +230,24 @@ export function sortRecent(devices, used = {}) {
   return devices.map((d, i) => [d, i]).sort(([a, i], [b, j]) => at(b) - at(a) || i - j).map(([d]) => d);
 }
 
+const PLATFORM_KEYS = { ios: ["sim:"], android: ["avd:", "phone:"] };
+
+// devices.used after a read of one platform (`prev`, `next`: its rows before
+// and now; no `prev` on the first read): a device that came on since (listed,
+// not on, now on) was used now, wherever it was started. When the read was
+// `complete`, that platform's entries for devices it no longer lists go.
+export function updateUsed(used, which, prev, next, now, complete) {
+  const was = new Map((prev ?? []).map((d) => [deviceKey(d), d.state]));
+  const listed = new Set(next.map(deviceKey));
+  const mine = (key) => PLATFORM_KEYS[which].some((p) => key.startsWith(p));
+  const out = Object.fromEntries(Object.entries(used).filter(([key]) => !complete || !mine(key) || listed.has(key)));
+  for (const d of next) {
+    const key = deviceKey(d), before = was.get(key);
+    if (d.state === "on" && before !== undefined && before !== "on") out[key] = now;
+  }
+  return out;
+}
+
 // A section's rows by default: the `keep` most recent plus every one that
 // isn't off (booted, starting, offline) or has an action under way.
 export function foldRows(sorted, { all = false, pending = {}, keep = 3 } = {}) {
