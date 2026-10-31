@@ -33,7 +33,7 @@ test("simctl: unavailable hidden, empty runtimes dropped, iOS newest first", () 
 });
 
 test("avds: one per <name>.ini in the AVD home; only those changing re-list", () => {
-  assert.deepEqual(D.avdNamesFrom(["parity-api36.avd", "parity-api36.ini", ".DS_Store", "Pixel_9_API_35.ini", "Pixel_9_API_35.avd", "notes.txt"]), ["parity-api36", "Pixel_9_API_35"]);
+  assert.deepEqual(D.avdNamesFrom(["parity-api36.avd", "parity-api36.ini", ".DS_Store", "Pixel_9_API_35.ini", "Pixel_9_API_35.avd", "notes.txt"]), ["Pixel_9_API_35", "parity-api36"]);
   assert.deepEqual(D.avdNamesFrom([]), []);
   assert.ok(D.avdListChanged(["/Users/me/.android/avd/Pixel_9_API_35.ini"]));
   // A running emulator keeps writing inside its own folder.

@@ -36,7 +36,7 @@ export function parseSimctl(json) {
 
 // The AVD home's files -> AVD names: each AVD has a <name>.ini there (names
 // are [A-Za-z0-9._-]).
-export const avdNamesFrom = (files) => files.map((f) => /^([A-Za-z0-9._-]+)\.ini$/.exec(f)?.[1]).filter(Boolean).sort((a, b) => a.localeCompare(b));
+export const avdNamesFrom = (files) => files.map((f) => /^([A-Za-z0-9._-]+)\.ini$/.exec(f)?.[1]).filter(Boolean).sort();
 
 // Whether a watchFolder batch on the AVD home added, changed or removed an
 // AVD: a <name>.ini, not one inside a running AVD's <name>.avd folder.
