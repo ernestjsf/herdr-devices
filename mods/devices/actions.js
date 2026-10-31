@@ -165,9 +165,10 @@ export async function perform(action, d, { url } = {}) {
     return { ok: false, message };
   };
   const key = D.deviceKey(d);
-  mark("devices.used", key, Date.now());
   // An AVD's entry names it: the settle pass checks on its emulator.
-  if (action === "boot" || action === "shutdown") mark("devices.pending", key, { phase: action === "boot" ? "booting" : "stopping", at: Date.now(), ...(d.avd && { avd: d.avd }) });
+  const phase = (p) => mark("devices.pending", key, { phase: p, at: Date.now(), ...(d.avd && { avd: d.avd }) });
+  mark("devices.used", key, Date.now());
+  if (action === "boot" || action === "shutdown") phase(action === "boot" ? "booting" : "stopping");
   try {
     const x = { url, path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
     if (d.kind !== "sim") {
@@ -185,13 +186,17 @@ export async function perform(action, d, { url } = {}) {
       if (action === "boot" && !x.emulator) return fail("emulator not found");
     }
     for (const step of D.stepsFor(action, d, x)) {
+      if (step.phase) phase(step.phase);
       let r;
       try { r = await exec(step.argv[0], step.argv.slice(1)); }
       catch (e) { if (step.ok === "any") continue; return fail(D.rejectionLine(e, LABEL[action])); }
       if (step.ok !== "any" && !(step.ok ?? [0]).includes(r.code)) return fail(D.errorLine(r));
     }
     if (action === "screenshot") notify({ level: "success", title: "Screenshot saved", body: x.path, timeout: 4000 });
-    if (action === "erase") notify({ level: "success", title: `Erased ${d.name}`, timeout: 3000 });
+    if (action === "erase") {
+      mark("devices.pending", key, undefined);
+      notify({ level: "success", title: `Erased ${d.name}`, timeout: 3000 });
+    }
     return { ok: true };
   } catch (e) {
     return fail(D.rejectionLine(e, LABEL[action]));

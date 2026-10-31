@@ -186,8 +186,9 @@ export function actionsFor(d) {
   return list;
 }
 
-// The commands an action runs, in order: { argv, ok } where ok lists the exit
-// codes that count as success ("any": the step may fail). `x` carries the tool
+// The commands an action runs, in order: { argv, ok, phase } where ok lists the
+// exit codes that count as success ("any": the step may fail) and phase is the
+// row's phase from that step on. `x` carries the tool
 // paths (adb, emulator), the screenshot path, the URL and the AVD's folder.
 export function stepsFor(action, d, x) {
   const sim = d.kind === "sim";
@@ -211,7 +212,7 @@ export function stepsFor(action, d, x) {
         ? [{ argv: ["xcrun", "simctl", "openurl", d.id, x.url] }]
         : [{ argv: adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", deviceQuote(x.url)) }];
     case "erase": {
-      if (sim) return [{ argv: ["xcrun", "simctl", "shutdown", d.id], ok: "any" }, { argv: ["xcrun", "simctl", "erase", d.id] }];
+      if (sim) return [{ argv: ["xcrun", "simctl", "shutdown", d.id], ok: "any", phase: "stopping" }, { argv: ["xcrun", "simctl", "erase", d.id], phase: "erasing" }];
       // Never rm anything but an absolute "<something>.avd" folder's data.
       if (!/^\/.+\.avd$/.test(x.avdPath ?? "")) throw new Error(`Unexpected AVD folder: ${x.avdPath}`);
       return [{ argv: ["sh", "-c", 'rm -rf "$1"/userdata-qemu.img* "$1"/snapshots', "sh", x.avdPath] }];

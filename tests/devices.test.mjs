@@ -145,7 +145,8 @@ test("commands are argument lists", () => {
   assert.deepEqual(D.stepsFor("openurl", sim, x), [{ argv: ["xcrun", "simctl", "openurl", "UDID-1", "https://x.test/?a=1&b='2'"] }]);
   // adb shell hands its words to the device's shell: the URL arrives single-quoted.
   assert.equal(D.stepsFor("openurl", avd, x)[0].argv.at(-1), `'https://x.test/?a=1&b='\\''2'\\'''`);
-  assert.deepEqual(D.stepsFor("erase", sim, x), [{ argv: ["xcrun", "simctl", "shutdown", "UDID-1"], ok: "any" }, { argv: ["xcrun", "simctl", "erase", "UDID-1"] }]);
+  // The row spins "stopping", then "erasing".
+  assert.deepEqual(D.stepsFor("erase", sim, x), [{ argv: ["xcrun", "simctl", "shutdown", "UDID-1"], ok: "any", phase: "stopping" }, { argv: ["xcrun", "simctl", "erase", "UDID-1"], phase: "erasing" }]);
   assert.deepEqual(D.stepsFor("erase", { ...avd, state: "off" }, x), [{ argv: ["sh", "-c", 'rm -rf "$1"/userdata-qemu.img* "$1"/snapshots', "sh", "/Users/me/.android/avd/parity-api36.avd"] }]);
   for (const bad of [null, "", "/", "relative.avd", "/Users/me"]) assert.throws(() => D.stepsFor("erase", avd, { ...x, avdPath: bad }));
 });
