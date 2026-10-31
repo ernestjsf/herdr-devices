@@ -98,6 +98,27 @@ export const avdApi = (text) => {
   return level ? `API ${level}` : null;
 };
 
+// How long a tool none of whose paths started counts as not installed, so the
+// polls don't try every path each time.
+const MISSING_MS = 60000;
+export const stillMissing = (at, now) => at != null && now - at < MISSING_MS;
+
+// Why exec rejected: "missing" (the program isn't there), "timeout" (exec
+// stops a program after 30 s), else "failed" (it couldn't start otherwise).
+export function execFailure(e) {
+  const m = String(e?.message ?? e);
+  return /cannot run .+: No such file or directory/.test(m) ? "missing" : /took longer than \d+ s/.test(m) ? "timeout" : "failed";
+}
+
+// A rejection as a line to show: "<tool> not found", "<what> timed out", else
+// its own words.
+export function rejectionLine(e, what) {
+  const m = String(e?.message ?? e).replace(/^`herdr\.exec`: /, "");
+  const kind = execFailure(e);
+  if (kind === "missing") return `${/^cannot run (.+?): /.exec(m)[1].split("/").pop()} not found`;
+  return kind === "timeout" ? `${what} timed out` : m;
+}
+
 // The line of a failed command worth showing. simctl opens every error with a
 // generic "An error was encountered..." line; the reason is on the next one.
 export function errorLine(r) {

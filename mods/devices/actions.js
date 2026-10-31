@@ -1,10 +1,11 @@
 // Runs the device tools: reading the lists and doing an action. Every program
-// may be missing (exec rejects then); that becomes a line in the panel or an
-// error toast, never a thrown error.
+// may be missing or hang (exec rejects then); that becomes a line in the panel
+// or an error toast, never a thrown error.
 import { exec, home, notify, shared, setShared, readTextFile } from "herdr";
 import * as D from "./devices.js";
 
-const found = {};
+const found = {}; // tool -> the path that started
+const missing = {}; // tool -> when none of its paths started
 let sdk = null;
 
 // The Android SDK's env vars, read once from the login environment.
@@ -16,22 +17,29 @@ function sdkEnv() {
   return sdk;
 }
 
-// Runs a tool from PATH, else from the SDK's homes. null: it isn't installed.
+// Runs a tool from the path that worked last, else PATH, else the SDK's homes.
+// null: it isn't installed (remembered for a minute). Rejects when it started
+// but timed out, or couldn't start for another reason.
 async function tool(name, args) {
-  const tries = found[name] ? [found[name]] : D.toolCandidates(name, await sdkEnv());
-  for (const path of tries) {
+  if (D.stillMissing(missing[name], Date.now())) return null;
+  for (const path of new Set([found[name], ...D.toolCandidates(name, await sdkEnv())])) {
+    if (!path) continue;
     try {
       const r = await exec(path, args);
       found[name] = path;
       return r;
-    } catch {}
+    } catch (e) {
+      if (D.execFailure(e) !== "missing") throw e;
+      if (found[name] === path) delete found[name];
+    }
   }
+  missing[name] = Date.now();
   return null;
 }
 
 // A tool's path, finding it with a harmless call when no list read did yet.
 async function toolPath(name) {
-  if (!found[name]) await tool(name, name === "adb" ? ["version"] : ["-list-avds"]);
+  if (!found[name]) await tool(name, name === "adb" ? ["version"] : ["-list-avds"]).catch(() => null);
   return found[name] ?? null;
 }
 
@@ -39,7 +47,7 @@ async function toolPath(name) {
 async function avdNames(adb) {
   const names = {};
   await Promise.all(adb.filter((d) => D.isEmulator(d.serial) && d.state === "device").map(async (d) => {
-    const r = await tool("adb", ["-s", d.serial, "emu", "avd", "name"]);
+    const r = await tool("adb", ["-s", d.serial, "emu", "avd", "name"]).catch(() => null);
     const name = r && r.code === 0 ? D.parseEmuAvdName(r.stdout) : null;
     if (name) names[d.serial] = name;
   }));
@@ -48,7 +56,8 @@ async function avdNames(adb) {
 
 // { sections, error }
 export async function loadIos() {
-  const sims = await tool("xcrun", ["simctl", "list", "devices", "-j"]);
+  let sims;
+  try { sims = await tool("xcrun", ["simctl", "list", "devices", "-j"]); } catch (e) { return { sections: [], error: D.rejectionLine(e, "simctl list") }; }
   if (!sims) return { sections: [], error: "xcrun not found" };
   if (sims.code !== 0) return { sections: [], error: D.errorLine(sims) };
   try { return { sections: D.parseSimctl(sims.stdout), error: null }; } catch { return { sections: [], error: "simctl printed something unreadable" }; }
@@ -56,10 +65,15 @@ export async function loadIos() {
 
 // { devices, notes }
 export async function loadAndroid() {
-  const [avdList, adbList] = await Promise.all([tool("emulator", ["-list-avds"]), tool("adb", ["devices", "-l"])]);
+  const [avdList, adbList] = await Promise.all([
+    tool("emulator", ["-list-avds"]).catch((e) => D.rejectionLine(e, "emulator -list-avds")),
+    tool("adb", ["devices", "-l"]).catch((e) => D.rejectionLine(e, "adb devices")),
+  ]);
   const notes = [];
   if (!avdList) notes.push("emulator not found");
+  else if (typeof avdList === "string") notes.push(avdList);
   if (!adbList) notes.push("adb not found");
+  else if (typeof adbList === "string") notes.push(adbList);
   else if (adbList.code !== 0) notes.push(`adb: ${D.errorLine(adbList)}`);
   const adb = adbList?.code === 0 ? D.parseAdbDevices(adbList.stdout) : [];
   const avds = avdList?.code === 0 ? D.parseAvds(avdList.stdout) : [];
@@ -69,7 +83,7 @@ export async function loadAndroid() {
 
 // Whether a running emulator has finished booting.
 export async function bootCompleted(serial) {
-  const r = await tool("adb", ["-s", serial, "shell", "getprop", "sys.boot_completed"]);
+  const r = await tool("adb", ["-s", serial, "shell", "getprop", "sys.boot_completed"]).catch(() => null);
   return r?.code === 0 && r.stdout.trim() === "1";
 }
 
@@ -103,6 +117,7 @@ function mark(name, key, value) {
 }
 
 const VERB = { boot: "boot", shutdown: "shut down", screenshot: "take a screenshot of", openurl: "open the URL on", erase: "erase" };
+const LABEL = { boot: "Boot", shutdown: "Shut down", screenshot: "Screenshot", openurl: "Open URL", erase: "Erase" };
 
 // Runs an action on a device, stopping at the first failure, and toasts what
 // happened. Every panel copy reloads after. `url`: for openurl.
@@ -134,14 +149,14 @@ export async function perform(action, d, { url } = {}) {
     for (const step of D.stepsFor(action, d, x)) {
       let r;
       try { r = await exec(step.argv[0], step.argv.slice(1)); }
-      catch { if (step.ok === "any") continue; return fail(`${step.argv[0]} not found`); }
+      catch (e) { if (step.ok === "any") continue; return fail(D.rejectionLine(e, LABEL[action])); }
       if (step.ok !== "any" && !(step.ok ?? [0]).includes(r.code)) return fail(D.errorLine(r));
     }
     if (action === "screenshot") notify({ level: "success", title: "Screenshot saved", body: x.path, timeout: 4000 });
     if (action === "erase") notify({ level: "success", title: `Erased ${d.name}`, timeout: 3000 });
     return { ok: true };
   } catch (e) {
-    return fail(String(e?.message ?? e));
+    return fail(D.rejectionLine(e, LABEL[action]));
   } finally {
     setShared("devices.changed", Date.now());
   }

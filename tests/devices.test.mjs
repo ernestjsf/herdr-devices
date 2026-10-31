@@ -86,6 +86,25 @@ test("avd ini and error lines", () => {
   assert.equal(D.errorLine({ code: 1, stderr: "", stdout: "" }), "exit code 1");
 });
 
+// exec's rejections, as the mod runtime words them.
+const NOT_FOUND = new Error("`herdr.exec`: cannot run /sdk/platform-tools/adb: No such file or directory (os error 2)");
+const TIMED_OUT = new Error("`herdr.exec`: adb took longer than 30 s and was stopped");
+const DENIED = new Error("`herdr.exec`: cannot run adb: Permission denied (os error 13)");
+
+test("exec rejections: missing tool, timeout, anything else", () => {
+  assert.deepEqual([NOT_FOUND, TIMED_OUT, DENIED].map(D.execFailure), ["missing", "timeout", "failed"]);
+  assert.equal(D.rejectionLine(NOT_FOUND, "Shut down"), "adb not found");
+  assert.equal(D.rejectionLine(TIMED_OUT, "Shut down"), "Shut down timed out");
+  assert.equal(D.rejectionLine(DENIED, "Shut down"), "cannot run adb: Permission denied (os error 13)");
+  assert.equal(D.rejectionLine(new Error("Unexpected AVD folder: /"), "Erase"), "Unexpected AVD folder: /");
+});
+
+test("a tool none of whose paths started counts as missing for a minute", () => {
+  assert.equal(D.stillMissing(undefined, 1000), false);
+  assert.equal(D.stillMissing(1000, 1000 + 59999), true);
+  assert.equal(D.stillMissing(1000, 1000 + 60000), false);
+});
+
 test("screenshot path and url check", () => {
   assert.equal(D.screenshotPath("/Users/me", "iPhone 17 Pro (B)", new Date(2026, 9, 31, 14, 5, 9)), "/Users/me/Desktop/iPhone-17-Pro-B-20261031-140509.png");
   assert.ok(D.validUrl("https://example.com/a?b=1&c=2"));
