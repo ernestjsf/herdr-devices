@@ -93,3 +93,65 @@ export function errorLine(r) {
   const lines = `${r.stderr ?? ""}\n${r.stdout ?? ""}`.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   return lines.find((l) => !l.startsWith("An error was encountered processing the command")) ?? `exit code ${r.code}`;
 }
+
+// ~/Desktop/<name>-20261031-142501.png
+export function screenshotPath(home, name, date) {
+  const p = (n) => String(n).padStart(2, "0");
+  const stamp = `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}-${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+  return `${home}/Desktop/${name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "device"}-${stamp}.png`;
+}
+
+// A URL worth sending: a scheme, then something.
+export const validUrl = (url) => /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/.test(url.trim());
+
+// `adb shell` joins its arguments into one command line for the device's
+// shell, so a value must be quoted for that shell.
+const deviceQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
+
+const REMOTE_SHOT = "/sdcard/herdr-devices-shot.png";
+
+// What a row offers, in menu order.
+export function actionsFor(d) {
+  const on = d.state === "on", list = [];
+  if (d.kind === "sim" || (d.kind === "avd" && d.avd)) {
+    if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
+    else if (d.state === "off") list.push({ action: "boot", label: "Boot", icon: "play" });
+  } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
+  if (on) list.push({ action: "screenshot", label: "Screenshot", icon: "camera" }, { action: "openurl", label: "Open URL…", icon: "link" });
+  list.push({ action: "copy", label: d.kind === "sim" ? "Copy UDID" : d.serial ? "Copy serial" : "Copy name", icon: "copy" });
+  // An AVD is erased by deleting its files, so only while it's off.
+  if (d.kind === "sim" || (d.kind === "avd" && d.avd && d.state === "off")) list.push({ action: "erase", label: "Erase…", icon: "trash", danger: true });
+  return list;
+}
+
+// The commands an action runs, in order: { argv, ok } where ok lists the exit
+// codes that count as success ("any": the step may fail). `x` carries the tool
+// paths (adb, emulator), the screenshot path, the URL and the AVD's folder.
+export function stepsFor(action, d, x) {
+  const sim = d.kind === "sim";
+  const adb = (...args) => [x.adb, "-s", d.serial, ...args];
+  switch (action) {
+    case "boot":
+      // 149: already booted. The emulator never returns, so it's started detached.
+      return sim
+        ? [{ argv: ["xcrun", "simctl", "boot", d.id], ok: [0, 149] }, { argv: ["open", "-a", "Simulator"] }]
+        : [{ argv: ["sh", "-c", 'nohup "$1" -avd "$2" >/dev/null 2>&1 &', "sh", x.emulator, d.avd] }];
+    case "shutdown":
+      return sim ? [{ argv: ["xcrun", "simctl", "shutdown", d.id] }] : [{ argv: adb("emu", "kill") }];
+    case "screenshot":
+      return sim
+        ? [{ argv: ["xcrun", "simctl", "io", d.id, "screenshot", x.path] }]
+        : [{ argv: adb("shell", "screencap", "-p", REMOTE_SHOT) }, { argv: adb("pull", REMOTE_SHOT, x.path) }, { argv: adb("shell", "rm", "-f", REMOTE_SHOT), ok: "any" }];
+    case "openurl":
+      return sim
+        ? [{ argv: ["xcrun", "simctl", "openurl", d.id, x.url] }]
+        : [{ argv: adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", deviceQuote(x.url)) }];
+    case "erase": {
+      if (sim) return [{ argv: ["xcrun", "simctl", "shutdown", d.id], ok: "any" }, { argv: ["xcrun", "simctl", "erase", d.id] }];
+      // Never rm anything but an absolute "<something>.avd" folder's data.
+      if (!/^\/.+\.avd$/.test(x.avdPath ?? "")) throw new Error(`Unexpected AVD folder: ${x.avdPath}`);
+      return [{ argv: ["sh", "-c", 'rm -rf "$1"/userdata-qemu.img* "$1"/snapshots', "sh", x.avdPath] }];
+    }
+  }
+  throw new Error(`Unknown action: ${action}`);
+}
