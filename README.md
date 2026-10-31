@@ -2,9 +2,10 @@
 
 Your iOS simulators, connected iPhones and Android emulators and phones in a
 side panel of the [Herdr](https://herdr.dev) desktop app, most recently used
-first, with the everyday actions one click away.
+first, with the everyday actions one click away. Pick a Maestro flow from the
+right-click menu and it runs on that device in a pane below.
 
-<img src="preview.png" width="464" alt="The Devices panel: iOS simulators grouped by runtime, two booted and running apps, and an Android section with a booted emulator and a phone over USB">
+<img src="preview.png" width="900" alt="Left, the Devices panel: iOS simulators grouped by runtime, two booted and running apps, one booting, a connected iPhone, and an Android section with a booted emulator and a phone over USB. Right, the Run Maestro flow picker: All flows, six flows in their folders, one selected, a Variables field and Browse, Cancel and Run buttons.">
 
 ## What you get
 
@@ -27,14 +28,18 @@ Hover for Boot or Shut down, Screenshot and More. Right-click for the full menu.
 | Screenshot | `simctl io screenshot`             | `adb shell screencap`, `adb pull`                    |
 | Copy id    | UDID                               | serial, or the AVD name when off                     |
 | Open URL…  | `simctl openurl`                   | `adb shell am start -a android.intent.action.VIEW`   |
-| Run Maestro flow… | opens a terminal pane running `maestro --device <UDID> test <path>` | emulators only, with the serial |
+| Run Maestro flow… | pick a flow, then a terminal pane runs `maestro --device <UDID> test <flow>` | emulators only, with the serial |
 | Copy app id | the running app's bundle id       | its package name                                     |
 | Stop *app* | `simctl terminate`                 | `adb shell am force-stop`                            |
 | Erase…     | `simctl erase` (factory reset)     | deletes the AVD's `snapshots/`, boots it once with `emulator -wipe-data -no-snapshot -no-window`, stops it when booted |
 
 Menu-only actions:
 
-- **Run Maestro flow…** is available only on booted simulators and emulators. It asks for a flow path, prefilled with the tab's `.maestro` folder, or its folder when there is none, then opens a terminal pane below running `maestro`. The pane stays open as a shell afterwards.
+- **Run Maestro flow…** needs a booted simulator or emulator. It lists the flows in the tab's `.maestro` folder. **All flows** runs the whole folder, any other row runs that one flow. Up, down and Enter pick, a click runs. With more than 6 flows a filter field sits on top. Browse… runs another folder. Without a `.maestro` folder it asks for a path instead.
+  - The flow you last ran in that folder is selected next time, and the menu offers it directly as **Run *flow* again**.
+  - The Variables field takes `KEY=VALUE` words, passed as `maestro test -e`, and remembers them per flow.
+  - The run opens a terminal pane below, replacing that device's previous Maestro pane, and the pane stays open as a shell. A failed run prints its debug folder, the newest under `~/.maestro/tests`.
+  - Flows should launch the app themselves (`launchApp` with `clearState` and `arguments` for preconditions), as Maestro recommends. The mod only runs `maestro test`.
 - **Copy app id** and **Stop** need a known running app. With several iOS apps running, the menu offers Stop for each.
 - **Erase…** asks first. An AVD is erased only while off.
 
@@ -55,7 +60,7 @@ Only local tools, always as argument lists. It never reaches the network.
 - `ps` to see which simulator app is using CPU. `open` to bring Simulator forward.
 - `emulator` and `adb` for Android, including `dumpsys` to see the app in front. Both are found on `PATH`, then under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`.
 - `pgrep` to check a started emulator is still running, `sh` to start it detached, `rm` to delete an AVD's `snapshots/` on erase.
-- `maestro` from your `PATH`, in a terminal pane via Herdr. Maestro's own network use is not the mod's.
+- `find` to list the flows in a `.maestro` folder. `maestro` from your `PATH`, in a terminal pane via Herdr. Maestro's own network use is not the mod's.
 - It lists and reads the AVD home (`$ANDROID_AVD_HOME`, else `~/.android/avd`) and watches it and `~/Library/Developer/CoreSimulator`.
 
 ## Install
