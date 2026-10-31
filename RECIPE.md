@@ -37,7 +37,7 @@ in `foreground`. Top to bottom:
     empty: reserved for a per-space color later), a 9px glyph slot, the name in
     `foreground` (truncated; semibold when booted), the secondary at 11px `dim`
     (never truncated: the runtime's version `26.5`, an AVD's `API 36`, `emulator`
-    for an unknown AVD, a phone's `USB` or `Wi-Fi`), during a phase `booting…`
+    for an unknown AVD, a phone's `USB` or `Wi-Fi`), then the app running on it (see Apps) at 11px `dim`, during a phase `booting…`
     or `stopping…` at 11px `dim`, then on hover the icons at the right edge.
     Booted rows are tinted `done` at 8% (`done` + `14`); the clicked row is
     `selected`; `hover` under the pointer.
@@ -69,7 +69,8 @@ in `foreground`. Top to bottom:
 height 30px per item plus 38px: a 24px line with the device's name at 11px
 `dim`, then 30px rows (radius 7, 9px gap, a 14px icon in `muted`, 12.8px text),
 `selected` for the keyboard choice, `hover` under the pointer. Items, in order:
-Shut down or Boot, Screenshot and `Open URL…` (when on), `Copy UDID` / `Copy
+Shut down or Boot, Screenshot and `Open URL…` (when on), `Copy app id` and a
+`Stop <app>` per app (when on with a known app), `Copy UDID` / `Copy
 serial` / `Copy name`, `Erase…` in `ansi1` (icon and text). Boot and Shut down
 close it at once (the row spins); Screenshot reads `Working…` while it runs.
 
@@ -106,6 +107,20 @@ action button reads `Working…` while it runs.
   emulator reports its name; other serials are phones by `model:` (underscores
   as spaces). Each platform's reads never overlap; one asked for meanwhile runs
   right after.
+- **Apps**: after each successful read, every booted device (simulator `on`,
+  adb state `device`) is asked which app runs, all at once, in the background
+  (a slow one can't hold up a read; the result is cached per device key in
+  `actions.js` and put on the row as `d.apps`, shown from the next read; a
+  change nudges the panels to read again). The cache entry goes when the device
+  isn't on; a failed call means no suffix. Simulator: `xcrun simctl spawn <udid>
+  launchctl list`, each `UIKitApplication:<bundle id>[` line, `com.apple.*`
+  dropped, sorted (it lists every running app, not only the front one). Android:
+  `adb -s <serial> shell dumpsys activity activities`, the package of
+  `topResumedActivity=ActivityRecord{... <package>/...}` (older APIs:
+  `mResumedActivity`), hidden when it matches
+  `^(com\.android\.|com\.google\.android\.(apps\.nexuslauncher|gms|googlequicksearchbox)|android$)`
+  or ends in `launcher`. The row shows the last dot-segment of the first id in
+  `dim`, its tooltip all the full ids; nothing without an app.
 - **Order and fold**: each section is sorted by the latest of simctl's
   `lastBootedAt` and the device's last use (shared `devices.used`: this
   panel's last action on it, or the read that first saw it on after it was
@@ -146,6 +161,9 @@ action button reads `Working…` while it runs.
     characters outside `[A-Za-z0-9._-]` become `-`). Toasts `Screenshot saved` with the path.
   - **Copy**: the UDID, serial, or (an off AVD) its name to the clipboard;
     toasts `Copied`.
+  - **Copy app id** / **Stop <app>**: the first app's full id to the clipboard;
+    `xcrun simctl terminate <udid> <id>` or `adb -s <serial> shell am
+    force-stop <package>`, one Stop per app, between Open URL… and Copy.
   - **Open URL…**: the dialog; Enter or Open checks the URL has a scheme
     (`https://`, `myapp://`), then `xcrun simctl openurl <udid> <url>` or `adb
     -s <serial> shell am start -a android.intent.action.VIEW -d '<url>'` (the
@@ -183,7 +201,7 @@ action button reads `Working…` while it runs.
   (`kind: "dialog", width: 420, height: 200 | 190, props: { role, device }`).
 - `devices.js`, no herdr import: parsing (`parseSimctl` with `detail` and
   `lastUsed`, `avdNamesFrom`, `avdListChanged`, `parseAdbDevices`,
-  `parseEmuAvdName`, `nameCache`,
+  `parseEmuAvdName`, `nameCache`, `parseIosApps`, `parseAndroidApp`, `appSegment`,
   `androidDevices`, `parseAvdIni`, `avdApi`, `phoneLink`), the row model `{
   kind: "sim" | "avd" | "phone", id, name, state, detail, lastUsed?, serial?,
   avd? }`, `deviceKey` (an AVD by name, so its key survives its serial),
@@ -295,7 +313,8 @@ action button reads `Working…` while it runs.
   and recents from devices that came on, with gone ones dropped, the fold
   (three recent plus running and pending), phases settling (an AVD only after boot_completed, three minutes at
   most), glyphs, hover icons, the row click, the footer, the menu per row, and
-  every action's argv (the URL quoted for `adb shell`, erase refusing a folder
+  the app lists (iOS launchctl, Android dumpsys with its fallback and hidden
+  packages) and segment, the menu's app items, and every action's argv (the URL quoted for `adb shell`, erase refusing a folder
   that isn't an absolute `*.avd`).
 - `herdr-app check ~/.config/herdr-app/mods/devices` passes and `herdr-app
   status` shows `"errors": []` with the panel open.
