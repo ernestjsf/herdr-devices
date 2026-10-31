@@ -1,8 +1,8 @@
 # Devices
 
 A side panel listing the Mac's iOS simulators, one folding section per runtime,
-and its Android emulators and devices, most recently used first, each with a
-status glyph and its OS version or API level. Clicking a row boots it (or brings
+and its Android emulators and devices, most recently used first, each with its
+device icon carrying its state, and an Android row's API level. Clicking a row boots it (or brings
 Simulator forward); hovering shows up to three icons (Boot or Shut down,
 Screenshot, More); right-click or More opens the full menu, where Erase lives
 behind a confirm dialog. Booting and stopping show as a spinning ring until the
@@ -24,33 +24,39 @@ in `foreground`. Top to bottom:
   spinner in `muted` (Herdr's `mods/workspace-chrome/spinner.svg`,
   `.spin(900)`) takes its place. Background polls never show it.
 - **The list**, scrolling with a scrollbar, 8px bottom padding:
-  - **Section headers** like Files' folders: 26px, 14px side padding, 4px above,
+  - **Section headers** like Files' folders: 26px, 14px side padding, 6px above,
     6px gaps: a 12px chevron in `dim` (Herdr's `mods/files/chevron-down.svg`,
-    `chevron-right.svg` when folded), the title uppercased at 11px semibold `dim`
-    (`IOS 26.5`, `ANDROID`), and a count badge (5px side padding, radius 4, 1px
-    `border`, 10px `muted`) with the section's device count. One section per
+    `chevron-right.svg` when folded), the title at 11px semibold `dim` (`iOS
+    26.5`, `Android`), and the section's device count at 11px in `dim` at 60%
+    (`dim` + `99`). One section per
     simulator runtime (`com.apple.CoreSimulator.SimRuntime.iOS-26-5` reads `iOS
     26.5`; `xrOS` reads `visionOS`), iOS first then watchOS, tvOS, visionOS,
     newest version first; then Android.
-  - **Rows**, 24px, 6px outer side margin, 4px right padding, radius 6, 6px
+  - **Rows**, 26px, 6px outer side margin, 4px right padding, radius 6, 8px
     gaps, 12.5px type. Left to right: a 2px wide, 14px tall bar slot (drawn
-    empty: reserved for a per-space color later), a 9px glyph slot, the name in
-    `foreground` (truncated; semibold when booted), the secondary at 11px `dim`
-    (never truncated: the runtime's version `26.5`, an AVD's `API 36`, `emulator`
-    for an unknown AVD, a phone's `USB` or `Wi-Fi`), then the app running on it (see Apps) at 11px `dim`, during a phase `booting…`
-    or `stopping…` at 11px `dim`, then on hover the icons at the right edge.
-    Booted rows are tinted `done` at 8% (`done` + `14`); the clicked row is
-    `selected`; `hover` under the pointer.
-  - **Status glyphs**: booted/online a filled 7px `done` dot; off a 7px ring
-    (1px `dim` border); booting/stopping a 9px spinning ring in `working`;
-    offline, unauthorized and other adb states an 8px filled triangle in
-    `blocked`.
+    empty: reserved for a per-space color later), a 14px icon slot, the name
+    (truncated; `foreground` and medium weight when booted, `muted` otherwise),
+    for Android rows the secondary at 11px `dim` (never truncated: an AVD's `API
+    36`, `emulator` for an unknown AVD, a phone's `USB` or `Wi-Fi`; a
+    simulator's version is its section's title, so none), then the app running
+    on it (see Apps) as a tag: 16px tall, 5px side padding, radius 4, `done` at
+    12% (`done` + `1f`) behind 10.5px medium `done` text, at most 96px wide
+    (truncated); during a phase `booting…` or `stopping…` at 11px `dim`, then on
+    hover the icons at the right edge. The clicked row is `selected`; `hover`
+    under the pointer. Rows carry no tint of their own.
+  - **Icons** (Lucide, in `icons/`): by the device's name, `tablet` (iPad,
+    Tablet, Fold, Pad), `watch` (Watch, Wear), `tv` (TV, Television), `glasses`
+    (Vision), else `smartphone`. Booted/online the icon is `foreground` with a
+    7px `done` dot (1.5px `background` border) over its bottom-right corner,
+    3px out to the right and 2px down; off it is `dim`. Booting/stopping a 13px
+    spinning ring in `working` takes its place; offline, unauthorized and other
+    adb states a 12px filled triangle in `blocked`.
   - **Hover icons**, at most three, 24px squares, radius 5, `raised` under the
     pointer, 13px icons in `muted`: Shut down (power) when on or Boot (play)
     when off — simulators and AVDs, not during a phase; Screenshot (camera) when
     on; More (three dots) always.
-  - **Fold row** under a section that has more than it shows: 24px, 23px left
-    padding, 11.5px `muted`, `Show all (N)`, and `Show fewer` once open.
+  - **Fold row** under a section that has more than it shows: 24px, 32px left
+    padding (the text lines up with the names), 11.5px `muted`, `Show all (N)`, and `Show fewer` once open.
   - **Empty and error lines**, centered, 12px, 8px vertical padding: the text in
     `dim`, a `dim` `·`, and one `accent` link: `xcrun not found · Get Xcode`,
     `No simulators · Open Xcode`, simctl's error `· Retry`, `adb not found ·
@@ -58,12 +64,12 @@ in `foreground`. Top to bottom:
     emulators or devices · Open Android Studio`. `Loading devices…` before the
     first read when nothing is cached.
 - **Footer**, 28px, 14px side padding, 1px `border` above, 11px `dim`,
-  truncated: `5 simulators · 1 emulator · 0 devices · refreshed 10s ago`
-  (seconds in steps of 10, then `2m ago`, `1h ago`).
+  truncated: `5 simulators · 1 emulator · refreshed 10s ago` (only the kinds
+  there are; `No devices` when none; seconds in steps of 10, then `2m ago`,
+  `1h ago`).
 - **Rail**: narrower than 160px, the header holds only Refresh (centered), each
-  section is a 1px `border` line with 6px above and below, rows show the bar
-  slot, the glyph and the name's first letter uppercased in semibold, and there
-  are no hover icons, fold rows or footer.
+  section is a 1px `border` line with 6px above and below, rows show only the
+  icon, centered, and there are no hover icons, fold rows or footer.
 
 **The menu** is a 210px popup at the pointer on `popover`, 5px padding, its
 height 30px per item plus 38px: a 24px line with the device's name at 11px
@@ -291,8 +297,10 @@ action button reads `Working…` while it runs.
 - `.when(cond, …)` needs a real boolean; create focus handles and input states
   in `init`, never in `render`.
 - Herdr hot-reloads on changes under `~/.config/herdr-app/mods/`. A symlinked
-  mod folder is loaded and checked fine, but edits in its target don't reload
-  it; remove the link and create it again.
+  mod folder loads and checks fine, but its SVG icons never draw (the app
+  serves assets from real paths under its home only) and edits in its target
+  don't reload it. Install a copy and sync it after each edit: `rsync -a
+  --delete mods/devices/ ~/.config/herdr-app/mods/devices/`.
 - `herdr-app shot` returns the last drawn frame; a window behind another app
   draws nothing, so shots repeat byte for byte. Bring Herdr forward first.
 - `done` is the theme's "finished" color, not necessarily green (a pale blue
@@ -321,9 +329,9 @@ action button reads `Working…` while it runs.
   that isn't an absolute `*.avd`).
 - `herdr-app check ~/.config/herdr-app/mods/devices` passes and `herdr-app
   status` shows `"errors": []` with the panel open.
-- The panel shows `IOS <version>` and `ANDROID` headers with counts, booted rows
-  tinted with a filled dot, off rows with a ring, versions and API levels beside
-  the names, and the footer.
+- The panel shows `iOS <version>` and `Android` headers with counts, booted rows
+  bright with a dot on the icon, off rows dim, API levels beside Android names,
+  and the footer.
 - On a throwaway simulator (`xcrun simctl create`): `xcrun simctl boot` and
   `shutdown` in a terminal flip its glyph within about a second; clicking it
   boots it with `booting…` and a spinning ring until it's on; Shut down shows
