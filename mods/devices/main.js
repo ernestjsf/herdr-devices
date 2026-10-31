@@ -34,11 +34,13 @@ class Panel {
     cx.timer.every(5000, (cx) => this.reload(cx));
   }
 
+  // A reload asked for during one runs right after it, so an action's result
+  // isn't lost to the timer's read in flight.
   reload(cx) {
-    if (this.loading) return;
+    if (this.loading) { this.again = true; return; }
     this.loading = true;
     cx.spawn(async (cx) => {
-      try { this.data = await load(); }
+      try { do { this.again = false; this.data = await load(); } while (this.again); }
       finally { this.loading = false; cx.notify(); }
     });
   }
