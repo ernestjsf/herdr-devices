@@ -1,7 +1,7 @@
 // Runs the device tools: reading the lists and doing an action. Every program
 // may be missing (exec rejects then); that becomes a line in the panel or an
 // error toast, never a thrown error.
-import { exec, home, notify, setShared, readTextFile } from "herdr";
+import { exec, home, notify, shared, setShared, readTextFile } from "herdr";
 import * as D from "./devices.js";
 
 const found = {};
@@ -46,34 +46,60 @@ async function avdNames(adb) {
   return names;
 }
 
-// { ios: { sections, error }, android: { devices, notes } }
-export async function load() {
-  const [sims, avdList, adbList] = await Promise.all([
-    tool("xcrun", ["simctl", "list", "devices", "-j"]),
-    tool("emulator", ["-list-avds"]),
-    tool("adb", ["devices", "-l"]),
-  ]);
-  const ios = { sections: [], error: null };
-  if (!sims) ios.error = "xcrun not found";
-  else if (sims.code !== 0) ios.error = D.errorLine(sims);
-  else {
-    try { ios.sections = D.parseSimctl(sims.stdout); } catch { ios.error = "simctl printed something unreadable"; }
-  }
+// { sections, error }
+export async function loadIos() {
+  const sims = await tool("xcrun", ["simctl", "list", "devices", "-j"]);
+  if (!sims) return { sections: [], error: "xcrun not found" };
+  if (sims.code !== 0) return { sections: [], error: D.errorLine(sims) };
+  try { return { sections: D.parseSimctl(sims.stdout), error: null }; } catch { return { sections: [], error: "simctl printed something unreadable" }; }
+}
+
+// { devices, notes }
+export async function loadAndroid() {
+  const [avdList, adbList] = await Promise.all([tool("emulator", ["-list-avds"]), tool("adb", ["devices", "-l"])]);
   const notes = [];
   if (!avdList) notes.push("emulator not found");
   if (!adbList) notes.push("adb not found");
   else if (adbList.code !== 0) notes.push(`adb: ${D.errorLine(adbList)}`);
   const adb = adbList?.code === 0 ? D.parseAdbDevices(adbList.stdout) : [];
   const avds = avdList?.code === 0 ? D.parseAvds(avdList.stdout) : [];
-  return { ios, android: { devices: D.androidDevices(avds, adb, await avdNames(adb)), notes } };
+  const apis = Object.fromEntries(await Promise.all(avds.map(async (n) => [n, D.avdApi(await avdIni(n))])));
+  return { devices: D.androidDevices(avds, adb, await avdNames(adb), apis), notes };
 }
 
-// The AVD's folder: `path=` in <avd home>/<name>.ini, else <avd home>/<name>.avd.
-async function avdFolder(name) {
+// Whether a running emulator has finished booting.
+export async function bootCompleted(serial) {
+  const r = await tool("adb", ["-s", serial, "shell", "getprop", "sys.boot_completed"]);
+  return r?.code === 0 && r.stdout.trim() === "1";
+}
+
+// The row click on a booted simulator: Simulator.app to the front.
+// (An emulator's window has no app bundle to activate, so AVDs get nothing.)
+export async function focus(d) {
+  if (d.kind === "sim") await exec("open", ["-a", "Simulator"]).catch(() => null);
+}
+
+// $ANDROID_AVD_HOME, else ~/.android/avd.
+async function avdHome() {
   const env = await sdkEnv();
-  const avdHome = (env.avdHome || `${env.home}/.android/avd`).replace(/\/+$/, "");
-  const ini = await readTextFile(`${avdHome}/${name}.ini`).catch(() => null);
-  return (D.parseAvdIni(ini) ?? `${avdHome}/${name}.avd`).replace(/\/+$/, "");
+  return (env.avdHome || `${env.home}/.android/avd`).replace(/\/+$/, "");
+}
+
+// <avd home>/<name>.ini, or null.
+const avdIni = async (name) => readTextFile(`${await avdHome()}/${name}.ini`).catch(() => null);
+
+// The AVD's folder: `path=` in its .ini, else <avd home>/<name>.avd.
+async function avdFolder(name) {
+  return (D.parseAvdIni(await avdIni(name)) ?? `${await avdHome()}/${name}.avd`).replace(/\/+$/, "");
+}
+
+// Shared so the menu and dialogs (other copies) and the panel agree:
+// "devices.pending" (boot / shut down under way) and "devices.used" (last action per device).
+function mark(name, key, value) {
+  const next = { ...(shared(name) ?? {}) };
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  setShared(name, next);
 }
 
 const VERB = { boot: "boot", shutdown: "shut down", screenshot: "take a screenshot of", openurl: "open the URL on", erase: "erase" };
@@ -82,9 +108,13 @@ const VERB = { boot: "boot", shutdown: "shut down", screenshot: "take a screensh
 // happened. Every panel copy reloads after. `url`: for openurl.
 export async function perform(action, d, { url } = {}) {
   const fail = (message) => {
+    mark("devices.pending", D.deviceKey(d), undefined);
     notify({ level: "error", title: `Couldn't ${VERB[action]} ${d.name}`, body: message });
     return { ok: false, message };
   };
+  const key = D.deviceKey(d);
+  mark("devices.used", key, Date.now());
+  if (action === "boot" || action === "shutdown") mark("devices.pending", key, { phase: action === "boot" ? "booting" : "stopping", at: Date.now() });
   try {
     const x = { url, path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
     if (d.kind !== "sim") {

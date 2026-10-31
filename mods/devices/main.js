@@ -5,13 +5,19 @@
 // reloads on the shared "devices.changed".
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { props, theme, shared, openOverlay, closeOverlay, notify } from "herdr";
-import { actionsFor, validUrl } from "./devices.js";
-import { load, perform } from "./actions.js";
+import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec } from "herdr";
+import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, phaseOf, glyphOf, hoverActions, primaryAction, footerText } from "./devices.js";
+import { loadIos, loadAndroid, bootCompleted, focus, perform } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
 const MENU_ROW = 30;
+
+// Per-copy conveniences (the last list, the folds); never required.
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k) ?? "null"); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
 
 function copy(d, cx) {
   cx.write_to_clipboard(d.id);
@@ -22,96 +28,211 @@ function openDialog(role, d) {
   openOverlay({ mod: "devices", kind: "dialog", width: 420, height: role === "url" ? 200 : 190, props: { role, device: d } });
 }
 
+function openMenu(d) {
+  openOverlay({ mod: "devices", kind: "popup", width: 210, height: actionsFor(d).length * MENU_ROW + 38, props: { role: "menu", device: d } });
+}
+
+// The one link an empty or error line offers.
+const LINKS = {
+  xcode: { label: "Get Xcode", go: (cx) => cx.open_url("https://developer.apple.com/xcode/") },
+  openXcode: { label: "Open Xcode", go: () => exec("open", ["-a", "Xcode"]).catch(() => null) },
+  sdk: { label: "Set ANDROID_HOME", go: (cx) => cx.open_url("https://developer.android.com/tools/variables") },
+  studio: { label: "Open Android Studio", go: () => exec("open", ["-a", "Android Studio"]).catch(() => null) },
+};
+
 class Panel {
   init(cx) {
-    this.data = null;
+    // Paint the last list at once; the reads refresh it behind.
+    const cache = store.get("cache");
+    this.ios = cache?.ios ?? null;
+    this.android = cache?.android ?? null;
+    this.refreshedAt = cache?.at ?? 0;
+    this.folds = { closed: {}, all: {}, ...(store.get("folds") ?? {}) };
+    this.parts = { ios: {}, android: {} };
+    this.spinning = 0;
     this.busy = 0;
     this.hovered = null;
+    this.selected = null;
     this.width = 0;
     this.seen = shared("devices.changed");
-    this.reload(cx);
-    // Timers run while hidden too, so no faster than this.
-    cx.timer.every(5000, (cx) => this.reload(cx));
-  }
-
-  // A reload asked for during one runs right after it, so an action's result
-  // isn't lost to the timer's read in flight.
-  reload(cx) {
-    if (this.loading) { this.again = true; return; }
-    this.loading = true;
+    this.reload(cx, "ios", !cache);
+    this.reload(cx, "android", !cache);
+    // adb can only be polled (exec waits for a program to end, so
+    // `adb track-devices` can't stream). Timers run while hidden: no faster.
+    cx.timer.every(5000, (cx) => this.reload(cx, "android"));
+    // Simulators: their device.plist changes on boot and shutdown; the slow
+    // poll is the safety net.
+    cx.timer.every(15000, (cx) => this.reload(cx, "ios"));
+    cx.timer.every(10000, (cx) => cx.notify()); // the footer's "refreshed …s ago"
     cx.spawn(async (cx) => {
-      try { do { this.again = false; this.data = await load(); } while (this.again); }
-      finally { this.loading = false; cx.notify(); }
+      try {
+        for (;;) {
+          const paths = await watchFolder(`${home()}/Library/Developer/CoreSimulator/Devices`);
+          if (paths.some((p) => p.endsWith("/device.plist"))) this.reload(cx, "ios");
+        }
+      } catch {} // no CoreSimulator folder: the poll covers it
     });
   }
 
-  act(a, d, cx) {
-    if (a.action === "copy") return copy(d, cx);
-    if (a.action === "openurl" || a.action === "erase") return openDialog(a.action === "openurl" ? "url" : "erase", d);
-    this.busy++;
+  // `shown`: the header spinner turns while it runs (first read, Refresh).
+  // A reload asked for during one runs right after it.
+  reload(cx, which, shown = false) {
+    const s = this.parts[which];
+    if (s.loading) { s.again = true; return; }
+    s.loading = true;
+    if (shown) this.spinning++;
     cx.spawn(async (cx) => {
-      try { await perform(a.action, d); }
-      finally { this.busy--; cx.notify(); }
+      try {
+        do { s.again = false; this[which] = await (which === "ios" ? loadIos() : loadAndroid()); } while (s.again);
+        this.refreshedAt = Date.now();
+        store.set("cache", { ios: this.ios, android: this.android, at: this.refreshedAt });
+        await this.settle();
+      } finally {
+        s.loading = false;
+        if (shown) this.spinning--;
+        cx.notify();
+      }
+    });
+  }
+
+  reloadAll(cx, shown) { this.reload(cx, "ios", shown); this.reload(cx, "android", shown); }
+
+  devices() { return [...(this.ios?.sections ?? []).flatMap((s) => s.devices), ...(this.android?.devices ?? [])]; }
+
+  // Ends the booting / stopping phases that got where they were going.
+  async settle() {
+    const pending = shared("devices.pending") ?? {};
+    if (!Object.keys(pending).length) return;
+    const completed = new Set();
+    for (const d of this.devices()) {
+      const key = deviceKey(d);
+      if (d.kind === "avd" && d.state === "on" && pending[key]?.phase === "booting" && (await bootCompleted(d.serial))) completed.add(key);
+    }
+    const now = shared("devices.pending") ?? {}; // read again: a press may have landed meanwhile
+    const next = settlePending(now, this.devices(), Date.now(), completed);
+    if (Object.keys(next).length !== Object.keys(now).length) setShared("devices.pending", next);
+  }
+
+  act(action, d, cx) {
+    if (action === "more") return openMenu(d);
+    const quiet = action === "boot" || action === "shutdown"; // the row's glyph shows those
+    if (!quiet) this.busy++;
+    cx.spawn(async (cx) => {
+      try { await perform(action, d); }
+      finally { if (!quiet) this.busy--; cx.notify(); }
     });
     cx.notify();
   }
 
-  menu(d) {
-    const items = actionsFor(d);
-    openOverlay({ mod: "devices", kind: "popup", width: 210, height: items.length * MENU_ROW + 38, props: { role: "menu", device: d } });
+  click(d, phase, key, cx) {
+    this.selected = key;
+    const a = primaryAction(d, phase);
+    if (a === "boot") this.act("boot", d, cx);
+    else if (a === "focus") cx.spawn(async () => focus(d));
+    cx.notify();
   }
 
-  row(d, t) {
-    const key = `${d.kind}:${d.id}`;
-    const dot = d.state === "on" ? t.done : d.state === "off" ? t.dim : t.blocked;
-    const showActions = this.hovered === key && this.width >= 200 && this.busy === 0;
-    return h_flex().id(`row-${key}`).h(30).flex_none().mx(6).px(8).gap(8).items_center().rounded(7)
+  fold(kind, title) {
+    this.folds[kind][title] = !this.folds[kind][title];
+    store.set("folds", this.folds);
+  }
+
+  glyph(g, t) {
+    if (g === "spin") return svg(SPINNER).size(9).text_color(t.working).spin(900);
+    if (g === "warn") return svg(icon("triangle")).size(8).text_color(t.blocked);
+    return g === "on" ? div().size(7).rounded(4).bg(t.done) : div().size(7).rounded(4).border_1().border_color(t.dim);
+  }
+
+  row(d, c) {
+    const { t, rail, pending } = c, key = deviceKey(d), phase = phaseOf(d, pending);
+    const on = d.state === "on" && !phase, hovered = this.hovered === key && !rail;
+    return h_flex().id(`row-${key}`).h(24).flex_none().mx(6).pr(4).gap(6).items_center().rounded(6).cursor_pointer().text_size(12.5)
+      .when(on, (el) => el.bg(t.done + "14"))
+      .when(this.selected === key, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
-      .on_hover((on, cx) => { this.hovered = on ? key : this.hovered === key ? null : this.hovered; cx.notify(); })
-      .on_mouse_down("right", (_e, cx) => { this.menu(d); cx.stop_propagation(); })
-      .child(div().size(7).flex_none().rounded(4).bg(dot))
-      .child(div().flex_1().min_w(0).truncate().text_color(d.state === "off" ? t.muted : t.foreground).child(d.name))
-      .when(d.state !== "on" && d.state !== "off" && !showActions, (el) => el.child(div().flex_none().text_size(11).text_color(t.blocked).child(d.state)))
-      .when(showActions, (el) => el.children(actionsFor(d).map((a) =>
-        div().id(`b-${a.action}-${key}`).size(22).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer()
-          .hover((s) => s.bg(t.raised))
-          .on_click((_e, cx) => this.act(a, d, cx))
-          .child(svg(icon(a.icon)).size(13).text_color(a.danger ? t.ansi1 : t.muted)))));
+      .on_hover((h, cx) => { this.hovered = h ? key : this.hovered === key ? null : this.hovered; cx.notify(); })
+      .on_click((_e, cx) => this.click(d, phase, key, cx))
+      .on_mouse_down("right", (_e, cx) => { openMenu(d); cx.stop_propagation(); })
+      // Reserved: the run half colors this bar by space. Nothing yet.
+      .child(div().w(2).h(14).flex_none().rounded(1))
+      .child(div().w(9).flex_none().flex().items_center().justify_center().child(this.glyph(glyphOf(d, phase), t)))
+      .when(rail, (el) => el.child(div().flex_none().font_semibold().child(d.name.slice(0, 1).toUpperCase())))
+      .when(!rail, (el) => el
+        .child(div().min_w(0).truncate().text_color(t.foreground).when(on, (n) => n.font_semibold()).child(d.name))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail ?? ""))
+        .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
+        .child(div().flex_1())
+        .when(hovered, (n) => n.children(hoverActions(d, phase).map((a) =>
+          div().id(`b-${a.action}-${key}`).size(24).flex_none().flex().items_center().justify_center().rounded(5)
+            .hover((s) => s.bg(t.raised))
+            .on_click((_e, cx) => { cx.stop_propagation(); this.act(a.action, d, cx); })
+            .child(svg(icon(a.icon)).size(13).text_color(t.muted))))));
   }
 
-  section(title, t) {
-    return div().px(14).pt(12).pb(4).flex_none().text_size(11).font_semibold().text_color(t.dim).child(title);
+  // A centered dim line with one accent link.
+  line(id, text, link, t) {
+    return h_flex().flex_none().flex_wrap().justify_center().gap(4).px(14).py(8).text_size(12)
+      .child(div().text_color(t.dim).child(text))
+      .when(Boolean(link), (el) => el.child(div().text_color(t.dim).child("·"))
+        .child(div().id(`link-${id}`).text_color(t.accent).cursor_pointer().on_click((_e, cx) => link.go(cx)).child(link?.label ?? "")));
   }
 
-  line(text, t) {
-    return div().px(14).py(4).flex_none().text_size(12).text_color(t.dim).child(text);
+  // A section: header (chevron, title, count), its rows (recent first,
+  // folded to the recent ones), the fold row; `empty`: { text, link } instead of rows.
+  section(title, devices, empty, c) {
+    const { t, rail, pending, used } = c;
+    const closed = this.folds.closed[title] === true, all = this.folds.all[title] === true;
+    const sorted = sortRecent(devices, used), { shown, hidden } = foldRows(sorted, { all, pending });
+    const canFold = foldRows(sorted, { pending }).hidden > 0;
+    if (rail) return [div().mx(8).my(6).h(1).flex_none().bg(t.border), ...shown.map((d) => this.row(d, c))];
+    const out = [h_flex().id(`sec-${title}`).h(26).flex_none().px(14).mt(4).gap(6).items_center().cursor_pointer()
+      .on_click((_e, cx) => { this.fold("closed", title); cx.notify(); })
+      .child(svg(`mods/files/chevron-${closed ? "right" : "down"}.svg`).size(12).flex_none().text_color(t.dim))
+      .child(div().text_size(11).font_semibold().text_color(t.dim).child(title.toUpperCase()))
+      .child(div().px(5).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(String(devices.length)))];
+    if (closed) return out;
+    if (empty) out.push(this.line(title, empty.text, empty.link, t));
+    out.push(...shown.map((d) => this.row(d, c)));
+    if (canFold) out.push(h_flex().id(`fold-${title}`).h(24).flex_none().mx(6).pl(23).items_center().rounded(6).cursor_pointer()
+      .text_size(11.5).text_color(t.muted).hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => { this.fold("all", title); cx.notify(); })
+      .child(all ? "Show fewer" : `Show all (${sorted.length})`));
+    return out;
   }
 
   render(cx) {
     const changed = shared("devices.changed");
-    if (changed !== this.seen) { this.seen = changed; this.reload(cx); }
-    const t = theme(), data = this.data;
+    if (changed !== this.seen) { this.seen = changed; this.reloadAll(cx); }
+    const t = theme(), rail = this.width > 0 && this.width < 160;
+    const c = { t, rail, pending: shared("devices.pending") ?? {}, used: shared("devices.used") ?? {} };
     const body = [];
-    if (!data) body.push(this.line("Loading devices…", t));
-    else {
-      const { ios, android } = data;
-      if (ios.error) body.push(this.section("iOS", t), this.line(ios.error, t));
-      else if (!ios.sections.length) body.push(this.section("iOS", t), this.line("No simulators installed", t));
-      for (const s of ios.sections) body.push(this.section(s.title, t), ...s.devices.map((d) => this.row(d, t)));
-      body.push(this.section("Android", t), ...android.notes.map((n) => this.line(n, t)), ...android.devices.map((d) => this.row(d, t)));
-      if (!android.devices.length && !android.notes.length) body.push(this.line("No emulators or devices", t));
+    if (!this.ios && !this.android) body.push(this.line("loading", "Loading devices…", null, t));
+    if (this.ios) {
+      const { sections, error } = this.ios;
+      if (error) body.push(...this.section("iOS", [], { text: error, link: error === "xcrun not found" ? LINKS.xcode : { label: "Retry", go: (cx) => this.reload(cx, "ios", true) } }, c));
+      else if (!sections.length) body.push(...this.section("iOS", [], { text: "No simulators", link: LINKS.openXcode }, c));
+      for (const s of sections) body.push(...this.section(s.title, s.devices, null, c));
     }
+    if (this.android) {
+      const { devices, notes } = this.android;
+      const missing = notes.some((n) => n.endsWith("not found"));
+      const empty = notes.length ? { text: notes.join(" · "), link: missing ? LINKS.sdk : { label: "Retry", go: (cx) => this.reload(cx, "android", true) } }
+        : devices.length ? null : { text: "No emulators or devices", link: LINKS.studio };
+      body.push(...this.section("Android", devices, empty, c));
+    }
+    const sims = (this.ios?.sections ?? []).flatMap((s) => s.devices);
+    const working = this.spinning > 0 || this.busy > 0;
     return v_flex().id("root").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13)
       .on_size_change((size, cx) => { this.width = size.width; cx.notify(); })
-      .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-        .child(div().font_semibold().child("Devices"))
-        .child(div().flex_1())
-        .when(this.busy > 0 || this.loading === true, (el) => el.child(svg(SPINNER).size(14).flex_none().text_color(t.muted).spin(900)))
-        .child(div().id("refresh").size(24).flex().items_center().justify_center().rounded(6).cursor_pointer()
-          .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.reload(cx))
-          .child(svg(icon("refresh")).size(14).text_color(t.muted))))
-      .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().children(body));
+      .child(h_flex().h(42).flex_none().px(rail ? 0 : 14).gap(8).items_center().when(rail, (el) => el.justify_center()).border_b(1).border_color(t.border)
+        .when(!rail, (el) => el.child(div().font_semibold().child("Devices")).child(div().flex_1()))
+        .child(div().id("refresh").size(24).flex_none().flex().items_center().justify_center().rounded(6)
+          .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.reloadAll(cx, true)))
+          .child(working ? svg(SPINNER).size(14).text_color(t.muted).spin(900) : svg(icon("refresh")).size(14).text_color(t.muted))))
+      .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().children(body))
+      .when(!rail, (el) => el.child(h_flex().h(28).flex_none().px(14).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
+        .child(div().min_w(0).truncate().child(footerText(sims, this.android?.devices ?? [], this.refreshedAt, Date.now())))));
   }
 }
 
