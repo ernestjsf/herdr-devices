@@ -93,7 +93,8 @@ export async function perform(action, d, { url } = {}) {
       if (action === "erase") {
         // Its files are deleted, so it must not be running: ask adb now, not the last poll.
         const list = await tool("adb", ["devices", "-l"]);
-        const names = list?.code === 0 ? await avdNames(D.parseAdbDevices(list.stdout)) : {};
+        if (list?.code !== 0) return fail("adb didn't answer, so it can't confirm the AVD is off.");
+        const names = await avdNames(D.parseAdbDevices(list.stdout));
         if (Object.values(names).includes(d.avd)) return fail("It's running. Shut it down first.");
         x.avdPath = await avdFolder(d.avd);
       }
