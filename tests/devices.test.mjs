@@ -166,11 +166,11 @@ test("screenshot path and url check", () => {
 
 test("actions per row", () => {
   const names = (d) => D.actionsFor(d).map((a) => a.action);
-  assert.deepEqual(names({ kind: "sim", id: "U", state: "on" }), ["shutdown", "screenshot", "openurl", "copy", "erase"]);
+  assert.deepEqual(names({ kind: "sim", id: "U", state: "on" }), ["shutdown", "screenshot", "openurl", "maestro", "copy", "erase"]);
   assert.deepEqual(names({ kind: "sim", id: "U", state: "off" }), ["boot", "copy", "erase"]);
-  assert.deepEqual(names({ kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "a", state: "on" }), ["shutdown", "screenshot", "openurl", "copy"]);
+  assert.deepEqual(names({ kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "a", state: "on" }), ["shutdown", "screenshot", "openurl", "maestro", "copy"]);
   assert.deepEqual(names({ kind: "avd", id: "a", avd: "a", state: "off" }), ["boot", "copy", "erase"]);
-  assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screenshot", "openurl", "copy"]);
+  assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screenshot", "openurl", "maestro", "copy"]);
   assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "unauthorized" }), ["copy"]);
   assert.equal(D.actionsFor({ kind: "sim", id: "U", state: "off" }).find((a) => a.action === "erase").danger, true);
 });
@@ -178,12 +178,33 @@ test("actions per row", () => {
 test("copy app id and Stop: only for a booted device with an app, between Open URL and Copy id", () => {
   const labels = (d) => D.actionsFor(d).map((a) => a.label);
   const sim = { kind: "sim", id: "U", state: "on", apps: ["com.example.budget", "com.example.notes"] };
-  assert.deepEqual(labels(sim), ["Shut down", "Screenshot", "Open URL…", "Copy app id", "Stop budget", "Stop notes", "Copy UDID", "Erase…"]);
+  assert.deepEqual(labels(sim), ["Shut down", "Screenshot", "Open URL…", "Run Maestro flow…", "Copy app id", "Stop budget", "Stop notes", "Copy UDID", "Erase…"]);
   assert.deepEqual(D.actionsFor(sim).filter((a) => a.action === "stop").map((a) => a.app), ["com.example.budget", "com.example.notes"]);
-  assert.deepEqual(labels({ kind: "phone", id: "R5", serial: "R5", state: "on", apps: ["com.example.budget"] }), ["Screenshot", "Open URL…", "Copy app id", "Stop budget", "Copy serial"]);
+  assert.deepEqual(labels({ kind: "phone", id: "R5", serial: "R5", state: "on", apps: ["com.example.budget"] }), ["Screenshot", "Open URL…", "Run Maestro flow…", "Copy app id", "Stop budget", "Copy serial"]);
   assert.ok(!labels({ ...sim, apps: [] }).includes("Copy app id"));
   assert.ok(!labels({ ...sim, apps: undefined }).includes("Copy app id"));
   assert.ok(!labels({ ...sim, state: "off" }).includes("Stop budget"));
+});
+
+test("Run Maestro flow: booted rows only, menu only", () => {
+  const sim = { kind: "sim", id: "U", state: "on" };
+  assert.deepEqual(D.actionsFor(sim).find((a) => a.action === "maestro"), { action: "maestro", label: "Run Maestro flow…", icon: "flask" });
+  assert.ok(!D.actionsFor({ ...sim, state: "off" }).some((a) => a.action === "maestro"));
+  assert.ok(!D.hoverActions(sim, null).some((a) => a.action === "maestro"));
+});
+
+test("maestro argv passes the device and the path as positional arguments", () => {
+  const argv = D.maestroArgv({ id: "UDID-1" }, "/p/.maestro dir/$x");
+  assert.deepEqual(argv, ["sh", "-c", argv[2], "sh", "UDID-1", "/p/.maestro dir/$x"]);
+  assert.ok(!argv[2].includes("UDID-1") && !argv[2].includes(".maestro"));
+  assert.ok(argv[2].startsWith('maestro --device "$1" test "$2";') && argv[2].endsWith('exec "${SHELL:-sh}" -l'));
+});
+
+test("flows default: the .maestro folder when there is one, else the folder", () => {
+  assert.equal(D.flowsDefault("/p", true), "/p/.maestro");
+  assert.equal(D.flowsDefault("/p", false), "/p");
+  assert.equal(D.flowsDefault(null, true), "");
+  assert.equal(D.flowsDefault(null, false), "");
 });
 
 test("commands are argument lists", () => {

@@ -30,9 +30,12 @@ Hover for Boot or Shut down, Screenshot and More. Right-click for the full menu.
 | Screenshot | `simctl io screenshot`             | `adb shell screencap`, `adb pull`                    |
 | Copy id    | UDID                               | serial, or the AVD name when off                     |
 | Open URL…  | `simctl openurl`                   | `adb shell am start -a android.intent.action.VIEW`   |
+| Run Maestro flow… | opens a terminal pane running `maestro --device <UDID> test <path>` | same, with the serial |
 | Copy app id | the running app's bundle id       | its package name                                     |
 | Stop *app* | `simctl terminate`                 | `adb shell am force-stop`                            |
 | Erase…     | `simctl erase` (factory reset)     | deletes the AVD's `snapshots/`, boots it once with `emulator -wipe-data -no-snapshot -no-window`, stops it when booted |
+
+Run Maestro flow… needs a booted device and lives in the menu only. It prefills the `.maestro` folder of the tab's terminal (its folder when there is none), and the pane stays open as a shell after the run.
 
 Copy app id and Stop need a known app and live in the menu only; with several iOS apps running the row shows that one and the menu offers Stop for each, in the same order.
 Erase lives in the menu only and asks first. An AVD is erased only while off.
@@ -50,7 +53,7 @@ Only local tools, always as argument lists: `xcrun simctl` (also `simctl spawn <
 `snapshots/` on erase), and `sh` to start the emulator detached with its output
 in the log. It lists the AVD home (`$ANDROID_AVD_HOME`, else `~/.android/avd`)
 for `<name>.ini` files, reads them, and watches it and
-`~/Library/Developer/CoreSimulator`. It never reaches the network. `adb` and `emulator` are found on `PATH`, then
+`~/Library/Developer/CoreSimulator`. It never reaches the network. `maestro` is started in a terminal pane via Herdr, found on your `PATH`, and is Maestro's own program, so the network claim covers the mod, not `maestro`. `adb` and `emulator` are found on `PATH`, then
 under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`.
 
 ## Install

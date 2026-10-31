@@ -1,7 +1,7 @@
 // Runs the device tools: reading the lists and doing an action. Every program
 // may be missing or hang (exec rejects then); that becomes a line in the panel
 // or an error toast, never a thrown error.
-import { exec, home, notify, shared, setShared, readTextFile } from "herdr";
+import { exec, home, notify, shared, setShared, readTextFile, run, focused, panes } from "herdr";
 import { readdir } from "fs/promises";
 import * as D from "./devices.js";
 
@@ -217,6 +217,22 @@ function mark(name, key, value) {
   if (value === undefined) delete next[key];
   else next[key] = value;
   setShared(name, next);
+}
+
+// The Run Maestro dialog's start: the project folder and the flows path to
+// offer there. The dialog opens from the panel, a mod pane with no folder, so
+// the tab's terminals say: the focused one, else the first with a folder, else home.
+export async function maestroPrefill() {
+  const f = focused(), inTab = panes().filter((p) => p.tab === f?.tab && p.cwd);
+  const cwd = f?.cwd ?? (inTab.find((p) => p.focused) ?? inTab[0])?.cwd ?? home();
+  const has = await readdir(cwd).then((names) => names.includes(".maestro"), () => false);
+  return { cwd, path: D.flowsDefault(cwd, has) };
+}
+
+// Opens a pane below running maestro on the device; the pane stays as a shell.
+export function runMaestro(d, flows, cwd) {
+  mark("devices.used", D.deviceKey(d), Date.now());
+  run("terminal.open", { argv: D.maestroArgv(d, flows), folder: cwd, place: "down", name: `maestro · ${d.name}` });
 }
 
 const VERB = { boot: "boot", shutdown: "shut down", screenshot: "take a screenshot of", openurl: "open the URL on", stop: "stop the app on", erase: "erase" };

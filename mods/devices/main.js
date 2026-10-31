@@ -1,13 +1,13 @@
 // Devices: iOS simulators and Android emulators/devices, with actions.
-// One mod, four roles (props.role): none, the panel; over the window "menu"
-// (the right-click popup), "url" and "erase" (dialogs). Mod commands carry no
+// One mod, five roles (props.role): none, the panel; over the window "menu"
+// (the right-click popup), "url", "maestro" and "erase" (dialogs). Mod commands carry no
 // arguments, so the overlays run their action themselves and the panel
 // reloads on the shared "devices.changed".
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec } from "herdr";
+import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder } from "herdr";
 import { actionsFor, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds } from "./actions.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroPrefill, runMaestro } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -25,7 +25,7 @@ function copy(text, cx) {
 }
 
 function openDialog(role, d) {
-  openOverlay({ mod: "devices", kind: "dialog", width: 420, height: role === "url" ? 200 : 190, props: { role, device: d } });
+  openOverlay({ mod: "devices", kind: "dialog", width: 420, height: role === "maestro" ? 230 : role === "url" ? 200 : 190, props: { role, device: d } });
 }
 
 function openMenu(d) {
@@ -286,7 +286,7 @@ class Menu {
     const a = this.items[i], { overlay } = props(), d = this.device;
     if (!a || this.busy >= 0) return;
     if (a.action === "copy" || a.action === "copyapp") { copy(a.action === "copy" ? d.id : d.apps[0], cx); closeOverlay(overlay); return; }
-    if (a.action === "openurl" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : "erase", d); return; }
+    if (a.action === "openurl" || a.action === "maestro" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : a.action, d); return; }
     if (a.action === "boot" || a.action === "shutdown") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
     this.busy = i;
     cx.spawn(async (cx) => { await perform(a.action, d, { app: a.app }); closeOverlay(overlay); cx.notify(); });
@@ -317,7 +317,7 @@ class Menu {
   }
 }
 
-// Open URL and Erase. Styled like Herdr's prompt and confirm; the action's
+// Open URL, Run Maestro flow and Erase. Styled like Herdr's prompt and confirm; the action's
 // error closes nothing (it is also toasted).
 class Dialog {
   init(cx) {
@@ -327,17 +327,30 @@ class Dialog {
     this.error = null;
     this.busy = false;
     this.handle = cx.focus_handle();
-    if (role === "url") {
-      this.input = InputState.new({ placeholder: "https://… or myapp://…" });
+    if (role === "url" || role === "maestro") {
+      this.input = InputState.new({ placeholder: role === "url" ? "https://… or myapp://…" : "Flow file or folder" });
       this.input.on("change", (_e, cx) => { this.error = null; cx.notify(); });
       this.input.on("submit", (_e, cx) => this.confirm(cx));
       this.input.focus();
       cx.timer.after(600, () => this.input.focus());
+      if (role === "maestro") cx.spawn(async (cx) => {
+        const { cwd, path } = await maestroPrefill();
+        this.cwd = cwd;
+        if (!this.input.value()) this.input.set_value(path); // not over what was typed meanwhile
+        cx.notify();
+      });
     } else this.handle.focus();
   }
 
   confirm(cx) {
     if (this.busy) return;
+    if (this.role === "maestro") {
+      const path = this.input.value().trim();
+      if (!path) { this.error = "Type a flow file or folder path, or Browse…"; cx.notify(); return; }
+      runMaestro(this.device, path, this.cwd ?? home()); // cwd: until the prefill answers
+      closeOverlay(props().overlay);
+      return;
+    }
     const url = this.role === "url" ? this.input.value().trim() : undefined;
     if (this.role === "url" && !validUrl(url)) { this.error = "Type a URL with a scheme, like https:// or myapp://."; cx.notify(); return; }
     this.busy = true;
@@ -351,8 +364,10 @@ class Dialog {
   }
 
   render() {
-    const t = theme(), d = this.device, erase = this.role === "erase";
-    const detail = !erase
+    const t = theme(), d = this.device, erase = this.role === "erase", maestro = this.role === "maestro";
+    const detail = maestro
+      ? `Opens a pane below running maestro --device ${d.id} test <path>.`
+      : !erase
       ? `Opens it on ${d.name}${d.kind === "sim" ? " (xcrun simctl openurl)" : " (am start -a android.intent.action.VIEW)"}.`
       : d.kind === "sim"
         ? `Shuts it down and resets it to factory state: every app and its data goes. ${d.name} stays in the list.`
@@ -368,22 +383,26 @@ class Dialog {
         else return;
         cx.stop_propagation();
       })
-      .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child(erase ? `Erase ${d.name}?` : "Open URL"))
+      .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child(erase ? `Erase ${d.name}?` : maestro ? "Run Maestro flow" : "Open URL"))
         .child(div().text_size(11).text_color(t.dim).child("Esc")))
       .child(div().text_color(t.muted).child(detail))
       .when(!erase, (el) => el.child(Input.new(this.input).h(36).px(10).rounded(9).border_1().border_color(t.accent).bg(t.background).text_size(12.8).text_color(t.foreground)))
       .when(Boolean(this.error), (el) => el.child(div().text_size(12).text_color(t.ansi1).child(this.error ?? "")))
       .child(div().flex_1())
       .child(h_flex().gap(8).justify_end()
+        .when(maestro, (el) => el.child(button("dd-browse", "Browse…", false, (_e, cx) => cx.spawn(async (cx) => {
+          const path = await pickFolder({ prompt: "Use" });
+          if (path) { this.input.set_value(path); this.error = null; cx.notify(); }
+        }))).child(div().flex_1()))
         .child(button("dd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
-        .child(button("dd-ok", this.busy ? "Working…" : erase ? "Erase" : "Open", true, (_e, cx) => this.confirm(cx))));
+        .child(button("dd-ok", this.busy ? "Working…" : erase ? "Erase" : maestro ? "Run" : "Open", true, (_e, cx) => this.confirm(cx))));
   }
 }
 
 export default class Devices extends View {
   init(_props, cx) {
     const role = props()?.role;
-    this.part = role === "menu" ? new Menu() : role === "url" || role === "erase" ? new Dialog() : new Panel();
+    this.part = role === "menu" ? new Menu() : role === "url" || role === "maestro" || role === "erase" ? new Dialog() : new Panel();
     this.part.init(cx);
   }
 

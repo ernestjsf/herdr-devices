@@ -239,7 +239,7 @@ export function actionsFor(d) {
     if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
     else if (d.state === "off") list.push({ action: "boot", label: "Boot", icon: "play" });
   } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
-  if (on) list.push({ action: "screenshot", label: "Screenshot", icon: "camera" }, { action: "openurl", label: "Open URL…", icon: "link" });
+  if (on) list.push({ action: "screenshot", label: "Screenshot", icon: "camera" }, { action: "openurl", label: "Open URL…", icon: "link" }, { action: "maestro", label: "Run Maestro flow…", icon: "flask" });
   if (on && d.apps?.length) {
     list.push({ action: "copyapp", label: "Copy app id", icon: "copy" });
     for (const app of d.apps) list.push({ action: "stop", label: `Stop ${appSegment(app)}`, icon: "square", app });
@@ -249,6 +249,15 @@ export function actionsFor(d) {
   if (d.kind === "sim" || (d.kind === "avd" && d.avd && d.state === "off")) list.push({ action: "erase", label: "Erase…", icon: "trash", danger: true });
   return list;
 }
+
+// The terminal pane's command for a Maestro run: the device id and the flows
+// path are positional arguments ($1, $2), never part of the script. The shell
+// that follows keeps the pane open once maestro exits.
+const MAESTRO = 'maestro --device "$1" test "$2"; printf \'\\n[maestro exited %s]\\n\' "$?"; exec "${SHELL:-sh}" -l';
+export const maestroArgv = (d, flows) => ["sh", "-c", MAESTRO, "sh", d.id, flows];
+
+// The flows path to offer: the project's .maestro folder when it has one, else its folder.
+export const flowsDefault = (cwd, hasDotMaestro) => (!cwd ? "" : hasDotMaestro ? `${cwd}/.maestro` : cwd);
 
 // The commands an action runs, in order: { argv, ok, phase } where ok lists the
 // exit codes that count as success ("any": the step may fail) and phase is the
