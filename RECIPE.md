@@ -1,13 +1,9 @@
 # Devices
 
-A side panel listing the Mac's iOS simulators, one folding section per runtime,
-and its Android emulators and devices, most recently used first, each with its
-device icon carrying its state, and an Android row's API level. Clicking a row boots it (or brings
-Simulator forward); hovering shows up to three icons (Boot or Shut down,
-Screenshot, More); right-click or More opens the full menu, where Erase lives
-behind a confirm dialog. Booting and stopping show as a spinning ring until the
-device gets there. It fills a side panel (a Devices button beside Files and
-Changes) or a pane.
+Your iOS simulators, connected iPhones and Android emulators and phones in a
+Herdr side panel, most recently used first. Click a device to boot it; hover for
+Shut down and Screenshot. The menu adds Open URL, Run Maestro flow, Copy id,
+Stop app and Erase. Each row shows the device's state and the app it is running.
 
 ![Devices](docs/preview.png)
 
@@ -98,9 +94,20 @@ action button reads `Working…` while it runs.
 - **Simulators**: `xcrun simctl list devices -j`, read again whenever
   `watchFolder("~/Library/Developer/CoreSimulator/Devices")` reports a
   `device.plist` (it is rewritten on boot and shutdown: a boot from any terminal
-  shows within about a second), every 15 s, after Refresh and after any action.
+  shows within about a second), every 5 s, after Refresh and after any action.
   Available ones only; `Booted` is on, `Shutdown` off, `Booting` and `Shutting
   Down` are phases, anything else is shown with a triangle.
+- **iOS devices**: with each simulator read, `xcrun devicectl list devices -q
+  --json-output /dev/stdout --timeout 5` in parallel; any failure (older Xcode,
+  non-zero exit, unreadable JSON) means no phones, silently. Only `reality:
+  "physical"` devices that are `transportType: "wired"` or `tunnelState:
+  "connected"` show (paired devices that are away are dropped, like adb's);
+  each is an `on` row `{ kind: "ios", id: udid, detail: "USB" | "Wi-Fi" }` (NBSP in
+  names becomes a space) in the section titled `<platform> <osVersionNumber>`,
+  created and sorted in with the simulators'. Click does nothing; the menu has
+  Open URL… (`xcrun devicectl device process launch --device <udid>
+  com.apple.mobilesafari --payload-url <url>`, Safari only), Run Maestro flow…
+  and Copy UDID. No apps are asked for.
 - **Android**: every 5 s, after Refresh and after any action: `adb devices
   -l`, and for each running `emulator-NNNN` not named yet `adb -s <serial> emu
   avd name` (first line), all at once and not awaited (a hung one can't hold up
@@ -212,7 +219,7 @@ action button reads `Working…` while it runs.
   `lastUsed`, `avdNamesFrom`, `avdListChanged`, `parseAdbDevices`,
   `parseEmuAvdName`, `nameCache`, `parseIosApps`, `parseAndroidApp`, `appSegment`,
   `androidDevices`, `parseAvdIni`, `avdApi`, `phoneLink`), the row model `{
-  kind: "sim" | "avd" | "phone", id, name, state, detail, lastUsed?, serial?,
+  kind: "sim" | "ios" | "avd" | "phone", id, name, state, detail, lastUsed?, serial?,
   avd? }`, `deviceKey` (an AVD by name, so its key survives its serial),
   `sortRecent`, `updateUsed`, `foldRows`, `settlePending`, `launchStep`,
   `phaseOf`, `glyphOf`,
@@ -306,8 +313,9 @@ action button reads `Working…` while it runs.
 - `done` is the theme's "finished" color, not necessarily green (a pale blue
   in graphite).
 - Untested: AVD erase run live, Android screenshot / Open URL on a running
-  emulator or phone, the rail and the dialogs drawn on screen, Linux, zoom other than 1. iOS physical devices
-  aren't listed (v1.1, `devicectl`).
+  emulator or phone, the rail and the dialogs drawn on screen, Linux, zoom other than 1. iOS devices: the
+  connected test (`transportType` wired or `tunnelState` connected) was not
+  observed with a device attached, and Open URL on one was not run live.
 
 ## Done when
 

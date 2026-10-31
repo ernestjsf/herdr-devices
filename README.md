@@ -1,21 +1,18 @@
 # herdr-devices
 
-A Devices panel for the [Herdr](https://herdr.dev) desktop app: your iOS
-simulators and Android emulators and phones, most recently used first, with
-the everyday actions one click away.
+Your iOS simulators, connected iPhones and Android emulators and phones in a
+side panel of the [Herdr](https://herdr.dev) desktop app, most recently used
+first, with the everyday actions one click away.
 
-<img src="docs/preview.png" width="464" alt="The Devices panel: an iOS 26.5 section with two booted simulators running apps and one booting, an iOS 18.5 section, and an Android section with a booted emulator, a phone over USB and an AVD">
+<img src="docs/preview.png" width="464" alt="The Devices panel: iOS simulators grouped by runtime, two booted and running apps, and an Android section with a booted emulator and a phone over USB">
 
 ## What you get
 
-- **iOS** simulators grouped by runtime, **Android** AVDs and `adb` devices.
-- Running devices and the three most recent per section; **Show all** for the rest.
-- Each row carries its device's icon (phone, tablet, watch, TV, Vision Pro), with its state: bright with a dot when booted, dim when off, a spinner while booting or stopping, a warning triangle when offline.
-- Live: simulators update within a second of a boot or shutdown from any
-  terminal. Android devices are polled every 5 s; the AVD list updates when an
-  AVD is added or removed.
-- Devices booted from a terminal count as recent too.
-- A booted device shows the app running on it as a tag after its name, the last part of its id (`com.example.budget` shows `budget`); hover for the full id. Nothing shows for an idle device. With several iOS apps running it is the one SpringBoard last put in front (from the simulator's log, read over the last 30 minutes at first); until that log says, the one using CPU most recently.
+- iOS simulators grouped by runtime, with the iPhones, iPads, Watches, TVs and Vision Pros connected to the Mac in the section of their OS version. Android AVDs and `adb` devices in one section.
+- Running devices and the three most recent per section. **Show all** for the rest.
+- Each row shows the device's icon (phone, tablet, watch, TV, Vision Pro) and its state: a dot when booted, dim when off, a spinner while booting or stopping, a triangle when offline.
+- A booted device shows the app it is running as a tag (`com.example.budget` shows `budget`). Hover for the full id. With several iOS apps running, it is the one in front.
+- Live: a simulator boot or shutdown from any terminal shows within a second. Android and connected iOS devices are polled every 5 s.
 - The last list paints instantly on open. Under 160 px the panel becomes a rail.
 
 ## Actions
@@ -35,26 +32,31 @@ Hover for Boot or Shut down, Screenshot and More. Right-click for the full menu.
 | Stop *app* | `simctl terminate`                 | `adb shell am force-stop`                            |
 | Erase…     | `simctl erase` (factory reset)     | deletes the AVD's `snapshots/`, boots it once with `emulator -wipe-data -no-snapshot -no-window`, stops it when booted |
 
-Run Maestro flow… needs a booted device and lives in the menu only. It prefills the `.maestro` folder of the tab's terminal (its folder when there is none), and the pane stays open as a shell after the run.
+Menu-only actions:
 
-Copy app id and Stop need a known app and live in the menu only; with several iOS apps running the row shows that one and the menu offers Stop for each, in the same order.
-Erase lives in the menu only and asks first. An AVD is erased only while off.
+- **Run Maestro flow…** needs a booted device. It asks for a flow path, prefilled with the tab's `.maestro` folder, or its folder when there is none, then opens a terminal pane below running `maestro`. The pane stays open as a shell afterwards.
+- **Copy app id** and **Stop** need a known running app. With several iOS apps running, the menu offers Stop for each.
+- **Erase…** asks first. An AVD is erased only while off.
+
+A connected iPhone or iPad offers only Open URL…, Run Maestro flow… and Copy UDID. Open URL opens in Safari, so custom schemes like `myapp://` don't resolve. No boot, screenshot or erase.
+
 Screenshots go to `~/Desktop/<device>-<YYYYMMDD-HHMMSS>-<ms>.png`.
 
-An emulator the panel starts writes to `$TMPDIR/herdr-devices-<avd>.log`
+An emulator started from the panel logs to `$TMPDIR/herdr-devices-<avd>.log`
 (`~/Library/Caches/herdr-devices/` without `$TMPDIR`). If it exits before
-booting, the row stops spinning after about 10 s and the log's last line is
-shown.
+booting, the row stops spinning after about 10 s and shows the log's last line.
 
 ## What it runs
 
-Only local tools, always as argument lists: `xcrun simctl` (also `simctl spawn <udid> launchctl list` to see which apps run, and `simctl spawn <udid> log show` for the one SpringBoard put in front), `ps` (which simulator app is using CPU), `open`, `emulator`,
-`adb` (also `shell dumpsys activity activities` to see the app in front), `pgrep` (is a started emulator still running), `rm` (an AVD's
-`snapshots/` on erase), and `sh` to start the emulator detached with its output
-in the log. It lists the AVD home (`$ANDROID_AVD_HOME`, else `~/.android/avd`)
-for `<name>.ini` files, reads them, and watches it and
-`~/Library/Developer/CoreSimulator`. It never reaches the network. `maestro` is started in a terminal pane via Herdr, found on your `PATH`, and is Maestro's own program, so the network claim covers the mod, not `maestro`. `adb` and `emulator` are found on `PATH`, then
-under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`.
+Only local tools, always as argument lists. It never reaches the network.
+
+- `xcrun simctl` to list, boot, shut down, screenshot, open URLs and erase simulators, and to see which apps run (`launchctl list`, `log show`).
+- `xcrun devicectl` to list connected iOS devices and open a URL in Safari on one.
+- `ps` to see which simulator app is using CPU. `open` to bring Simulator forward.
+- `emulator` and `adb` for Android, including `dumpsys` to see the app in front. Both are found on `PATH`, then under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`.
+- `pgrep` to check a started emulator is still running, `sh` to start it detached, `rm` to delete an AVD's `snapshots/` on erase.
+- `maestro` from your `PATH`, in a terminal pane via Herdr. Maestro's own network use is not the mod's.
+- It lists and reads the AVD home (`$ANDROID_AVD_HOME`, else `~/.android/avd`) and watches it and `~/Library/Developer/CoreSimulator`.
 
 ## Install
 
@@ -78,10 +80,8 @@ is added, with `devices` in place of `graph`.
 ## Limits
 
 - iOS needs macOS and Xcode. The Android half should work on Linux, untested.
-- iOS physical devices are not listed yet.
 - Clicking a booted AVD does nothing: the emulator window has no app bundle to activate.
-- Tested on macOS with Herdr 0.1.10. AVD erase, and Android screenshots and
-  Open URL, are covered by tests, not run live yet.
+- Tested on macOS with Herdr 0.1.10. AVD erase, Android screenshots and Open URL, and connected iOS devices are covered by tests, not run live yet.
 
 ## Development
 
