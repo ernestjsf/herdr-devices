@@ -1,7 +1,6 @@
 // The mod's parsing and command building, on output captured from macOS.
-// Fixtures: simctl-devices.json, emulator-list-avds.txt and adb-devices-empty.txt
-// are real (home folder renamed); the *-mixed, *-noisy and adb-emu-avd-name
-// files are written by hand in the tools' exact formats, since this machine
+// Fixtures: simctl-devices.json and adb-devices-empty.txt are real (home folder
+// renamed); the *-mixed and adb-emu-avd-name files are written by hand in the tools' exact formats, since this machine
 // had no running emulator or phone. Run: node --test tests/
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -33,10 +32,12 @@ test("simctl: unavailable hidden, empty runtimes dropped, iOS newest first", () 
   assert.equal(sections[0].devices.find((d) => d.name === "iPad Air").state, "booting");
 });
 
-test("avds: names only, emulator chatter dropped", () => {
-  assert.deepEqual(D.parseAvds(fixture("emulator-list-avds.txt")), ["parity-api36"]);
-  assert.deepEqual(D.parseAvds(fixture("emulator-list-avds-noisy.txt")), ["parity-api36", "Pixel_9_API_35"]);
-  assert.deepEqual(D.parseAvds(""), []);
+test("avds: one per <name>.ini in the AVD home; only those changing re-list", () => {
+  assert.deepEqual(D.avdNamesFrom(["parity-api36.avd", "parity-api36.ini", ".DS_Store", "Pixel_9_API_35.ini", "Pixel_9_API_35.avd", "notes.txt"]), ["parity-api36", "Pixel_9_API_35"]);
+  assert.deepEqual(D.avdNamesFrom([]), []);
+  assert.ok(D.avdListChanged(["/Users/me/.android/avd/Pixel_9_API_35.ini"]));
+  // A running emulator keeps writing inside its own folder.
+  assert.ok(!D.avdListChanged(["/Users/me/.android/avd/parity-api36.avd/hardware-qemu.ini", "/Users/me/.android/avd/parity-api36.avd/userdata-qemu.img.qcow2"]));
 });
 
 test("adb devices -l", () => {
@@ -55,8 +56,15 @@ test("emu avd name: first line, CRLF stripped", () => {
   assert.equal(D.parseEmuAvdName(""), null);
 });
 
+test("emulator names: kept while adb lists the serial, asked once per new emulator", () => {
+  const adb = D.parseAdbDevices(fixture("adb-devices-mixed.txt"));
+  assert.deepEqual(D.nameCache({}, adb), { keep: {}, ask: ["emulator-5554"] });
+  assert.deepEqual(D.nameCache({ "emulator-5554": "parity-api36", "emulator-5558": "gone" }, adb), { keep: { "emulator-5554": "parity-api36" }, ask: [] });
+  assert.deepEqual(D.nameCache({ "emulator-5554": "parity-api36" }, []), { keep: {}, ask: [] });
+});
+
 test("android rows: running AVDs mapped by serial, others off, phones by model", () => {
-  const avds = D.parseAvds(fixture("emulator-list-avds-noisy.txt"));
+  const avds = ["parity-api36", "Pixel_9_API_35"];
   const adb = D.parseAdbDevices(fixture("adb-devices-mixed.txt"));
   const rows = D.androidDevices(avds, adb, { "emulator-5554": "parity-api36" }, { "parity-api36": "API 36" });
   assert.deepEqual(rows, [
@@ -66,7 +74,7 @@ test("android rows: running AVDs mapped by serial, others off, phones by model",
     { kind: "phone", id: "R58M12ABCDE", serial: "R58M12ABCDE", name: "SM A546B", state: "on", detail: "USB" },
     { kind: "phone", id: "0A281FDD4003XZ", serial: "0A281FDD4003XZ", name: "0A281FDD4003XZ", state: "unauthorized", detail: "USB" },
   ]);
-  assert.deepEqual(D.androidDevices(D.parseAvds(fixture("emulator-list-avds.txt")), [], {}), [{ kind: "avd", id: "parity-api36", avd: "parity-api36", name: "parity-api36", state: "off", detail: "emulator" }]);
+  assert.deepEqual(D.androidDevices(["parity-api36"], [], {}), [{ kind: "avd", id: "parity-api36", avd: "parity-api36", name: "parity-api36", state: "off", detail: "emulator" }]);
   assert.equal(D.phoneLink("192.168.1.20:41235"), "Wi-Fi");
   assert.equal(D.phoneLink("adb-R58M12ABCDE-x1y2._adb-tls-connect._tcp"), "Wi-Fi");
 });

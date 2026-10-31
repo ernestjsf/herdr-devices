@@ -34,9 +34,13 @@ export function parseSimctl(json) {
   });
 }
 
-// `emulator -list-avds`: one name per line. AVD names are [A-Za-z0-9._-], so
-// anything else (the emulator's INFO/WARNING chatter) is dropped.
-export const parseAvds = (text) => text.split(/\r?\n/).map((l) => l.trim()).filter((l) => /^[A-Za-z0-9._-]+$/.test(l));
+// The AVD home's files -> AVD names: each AVD has a <name>.ini there (names
+// are [A-Za-z0-9._-]).
+export const avdNamesFrom = (files) => files.map((f) => /^([A-Za-z0-9._-]+)\.ini$/.exec(f)?.[1]).filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+// Whether a watchFolder batch on the AVD home added, changed or removed an
+// AVD: a <name>.ini, not one inside a running AVD's <name>.avd folder.
+export const avdListChanged = (paths) => paths.some((p) => p.endsWith(".ini") && !/\.avd\//.test(p));
 
 // `adb devices -l` -> [{ serial, state, model }].
 export function parseAdbDevices(text) {
@@ -52,6 +56,15 @@ export function parseAdbDevices(text) {
 }
 
 export const isEmulator = (serial) => /^emulator-\d+$/.test(serial);
+
+// The serial -> AVD name cache against a new `adb devices` read: names of the
+// serials adb still lists stay (`keep`); running emulators without one are to
+// be asked (`ask`).
+export function nameCache(cache, adb) {
+  const listed = new Set(adb.map((d) => d.serial));
+  const keep = Object.fromEntries(Object.entries(cache).filter(([serial]) => listed.has(serial)));
+  return { keep, ask: adb.filter((d) => isEmulator(d.serial) && d.state === "device" && !keep[d.serial]).map((d) => d.serial) };
+}
 
 // `adb -s emulator-5554 emu avd name` prints "<name>\r\nOK".
 export const parseEmuAvdName = (text) => text.split(/\r?\n/)[0].trim() || null;

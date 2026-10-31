@@ -2,11 +2,15 @@
 // may be missing or hang (exec rejects then); that becomes a line in the panel
 // or an error toast, never a thrown error.
 import { exec, home, notify, shared, setShared, readTextFile } from "herdr";
+import { readdir } from "fs/promises";
 import * as D from "./devices.js";
 
 const found = {}; // tool -> the path that started
 const missing = {}; // tool -> when none of its paths started
 let sdk = null;
+let avdBySerial = {}; // running emulator's serial -> AVD name, while adb lists it
+const asking = new Set(); // serials whose name is being asked for
+let avdList = null; // { avds, apis }, until forgetAvds()
 
 // The Android SDK's env vars and TMPDIR, read once from the login environment.
 function sdkEnv() {
@@ -43,15 +47,35 @@ async function toolPath(name) {
   return found[name] ?? null;
 }
 
-// Running emulators' AVD names by serial.
-async function avdNames(adb) {
-  const names = {};
-  await Promise.all(adb.filter((d) => D.isEmulator(d.serial) && d.state === "device").map(async (d) => {
-    const r = await tool("adb", ["-s", d.serial, "emu", "avd", "name"]).catch(() => null);
-    const name = r && r.code === 0 ? D.parseEmuAvdName(r.stdout) : null;
-    if (name) names[d.serial] = name;
-  }));
-  return names;
+// Running emulators' AVD names by serial, as far as known. The serials not
+// named yet are asked about all at once, in the background so a hung
+// `adb emu` can't hold up a read (they show by serial until a later one), or
+// awaited with `wait`.
+async function avdNames(adb, wait = false) {
+  const { keep, ask } = D.nameCache(avdBySerial, adb);
+  avdBySerial = keep;
+  const asked = ask.filter((serial) => !asking.has(serial)).map(async (serial) => {
+    asking.add(serial);
+    try {
+      const r = await tool("adb", ["-s", serial, "emu", "avd", "name"]);
+      const name = r?.code === 0 ? D.parseEmuAvdName(r.stdout) : null;
+      if (name) avdBySerial[serial] = name;
+    } catch {} finally { asking.delete(serial); }
+  });
+  if (wait) await Promise.all(asked);
+  return { ...avdBySerial };
+}
+
+// The AVD list is read again on the next read (an .ini in the AVD home changed, or Refresh).
+export function forgetAvds() { avdList = null; }
+
+// The AVDs (<avd home>/<name>.ini) and their API levels. Kept until
+// forgetAvds(); a missing AVD home isn't kept, so it is listed again next read.
+async function listAvds() {
+  if (avdList) return avdList;
+  const avds = D.avdNamesFrom(await readdir(await avdHome()));
+  const apis = Object.fromEntries(await Promise.all(avds.map(async (n) => [n, D.avdApi(await avdIni(n))])));
+  return (avdList = { avds, apis });
 }
 
 // { sections, error }
@@ -65,19 +89,17 @@ export async function loadIos() {
 
 // { devices, notes }
 export async function loadAndroid() {
-  const [avdList, adbList] = await Promise.all([
-    tool("emulator", ["-list-avds"]).catch((e) => D.rejectionLine(e, "emulator -list-avds")),
+  const [{ avds, apis }, adbList, emulator] = await Promise.all([
+    listAvds().catch(() => ({ avds: [], apis: {} })),
     tool("adb", ["devices", "-l"]).catch((e) => D.rejectionLine(e, "adb devices")),
+    toolPath("emulator"),
   ]);
   const notes = [];
-  if (!avdList) notes.push("emulator not found");
-  else if (typeof avdList === "string") notes.push(avdList);
+  if (!emulator) notes.push("emulator not found");
   if (!adbList) notes.push("adb not found");
   else if (typeof adbList === "string") notes.push(adbList);
   else if (adbList.code !== 0) notes.push(`adb: ${D.errorLine(adbList)}`);
   const adb = adbList?.code === 0 ? D.parseAdbDevices(adbList.stdout) : [];
-  const avds = avdList?.code === 0 ? D.parseAvds(avdList.stdout) : [];
-  const apis = Object.fromEntries(await Promise.all(avds.map(async (n) => [n, D.avdApi(await avdIni(n))])));
   return { devices: D.androidDevices(avds, adb, await avdNames(adb), apis), notes };
 }
 
@@ -109,7 +131,7 @@ export async function emulatorLastLine(avd) {
 }
 
 // $ANDROID_AVD_HOME, else ~/.android/avd.
-async function avdHome() {
+export async function avdHome() {
   const env = await sdkEnv();
   return (env.avdHome || `${env.home}/.android/avd`).replace(/\/+$/, "");
 }
@@ -155,7 +177,7 @@ export async function perform(action, d, { url } = {}) {
         // Its files are deleted, so it must not be running: ask adb now, not the last poll.
         const list = await tool("adb", ["devices", "-l"]);
         if (list?.code !== 0) return fail("adb didn't answer, so it can't confirm the AVD is off.");
-        const names = await avdNames(D.parseAdbDevices(list.stdout));
+        const names = await avdNames(D.parseAdbDevices(list.stdout), true);
         if (Object.values(names).includes(d.avd)) return fail("It's running. Shut it down first.");
         x.avdPath = await avdFolder(d.avd);
       }

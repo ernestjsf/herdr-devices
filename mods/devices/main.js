@@ -6,8 +6,8 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec } from "herdr";
-import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, phaseOf, glyphOf, hoverActions, primaryAction, footerText } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, focus, perform } from "./actions.js";
+import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, phaseOf, glyphOf, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, focus, perform, avdHome, forgetAvds } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -59,7 +59,14 @@ class Panel {
     this.reload(cx, "android", !cache);
     // adb can only be polled (exec waits for a program to end, so
     // `adb track-devices` can't stream). Timers run while hidden: no faster.
+    // The AVDs themselves are listed again only when their .ini files change.
     cx.timer.every(5000, (cx) => this.reload(cx, "android"));
+    cx.spawn(async (cx) => {
+      try {
+        const dir = await avdHome();
+        for (;;) if (avdListChanged(await watchFolder(dir))) { forgetAvds(); this.reload(cx, "android"); }
+      } catch {} // no AVD home: each read lists it again until there is one
+    });
     // Simulators: their device.plist changes on boot and shutdown; the slow
     // poll is the safety net.
     cx.timer.every(15000, (cx) => this.reload(cx, "ios"));
@@ -237,7 +244,7 @@ class Panel {
       .child(h_flex().h(42).flex_none().px(rail ? 0 : 14).gap(8).items_center().when(rail, (el) => el.justify_center()).border_b(1).border_color(t.border)
         .when(!rail, (el) => el.child(div().font_semibold().child("Devices")).child(div().flex_1()))
         .child(div().id("refresh").size(24).flex_none().flex().items_center().justify_center().rounded(6)
-          .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.reloadAll(cx, true)))
+          .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { forgetAvds(); this.reloadAll(cx, true); }))
           .child(working ? svg(SPINNER).size(14).text_color(t.muted).spin(900) : svg(icon("refresh")).size(14).text_color(t.muted))))
       .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().children(body))
       .when(!rail, (el) => el.child(h_flex().h(28).flex_none().px(14).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)

@@ -1,3 +1,0 @@
-INFO    | Storing crashdata in: /tmp/android-me/emu-crash-34.2.16.db, detection is enabled for process: 1234
-parity-api36
-Pixel_9_API_35
