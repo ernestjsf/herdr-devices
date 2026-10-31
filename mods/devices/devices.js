@@ -110,15 +110,32 @@ const etimeSeconds = (t) => {
   return rest.split(":").reduce((n, p) => n * 60 + Number(p), 0) + Number(d) * 86400;
 };
 
-// The apps' ids, most likely the one on screen first. The simulator suspends
-// backgrounded apps, so CPU use tells (`psText`: `ps -o pid=,%cpu=,etime=`
-// for their pids; under 0.5 counts as idle); when all are idle the newest
-// launch leads. Apps ps didn't print go last, in the order given.
-export function rankIosApps(apps, psText) {
+// SpringBoard logs each app it puts in front. `simctl spawn <udid> log show
+// --predicate FRONT_PREDICATE` -> the bundle id of the last one, or null.
+export const FRONT_PREDICATE = 'process == "SpringBoard" AND category == "Common" AND eventMessage CONTAINS "visibility: Foreground"';
+export function parseIosFront(text) {
+  let id = null;
+  for (const m of text.matchAll(/Application process state changed for ([A-Za-z0-9.-]+): <[^>]*visibility: Foreground>/g)) id = m[1];
+  return id;
+}
+
+// A time as `log show --start` takes it, local: "2026-10-31 13:13:54".
+export function logStart(ms) {
+  const d = new Date(ms), n = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${n(d.getMonth() + 1)}-${n(d.getDate())} ${n(d.getHours())}:${n(d.getMinutes())}:${n(d.getSeconds())}`;
+}
+
+// The apps' ids, the one on screen first: `front` (parseIosFront) when it is
+// still running. Without it CPU use tells, since the simulator suspends
+// backgrounded apps (`psText`: `ps -o pid=,%cpu=,etime=` for their pids; under
+// 0.5 counts as idle); when all are idle the newest launch leads. Apps ps
+// didn't print go last, in the order given.
+export function rankIosApps(apps, psText, front = null) {
   const stat = new Map();
   for (const m of psText.matchAll(/^\s*(\d+)\s+([\d.]+)\s+(\S+)\s*$/gm)) stat.set(m[1], { cpu: Number(m[2]) < 0.5 ? 0 : Number(m[2]), age: etimeSeconds(m[3]) });
   const at = (a) => stat.get(a.pid);
   return [...apps].sort((a, b) => {
+    if (a.id === front || b.id === front) return (b.id === front) - (a.id === front);
     const x = at(a), y = at(b);
     if (!x || !y) return !x - !y;
     return y.cpu - x.cpu || x.age - y.age || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);

@@ -68,6 +68,15 @@ test("ps ranks the apps: CPU first, then newest launch, then id", () => {
   assert.deepEqual(D.rankIosApps(apps, "500 0.0 05:00\n90340 0.0 05:00\n"), ["com.example.budget", "com.example.notes", "com.example.focus"]);
   // ps failed: the order given.
   assert.deepEqual(D.rankIosApps(apps, ""), ["com.example.budget", "com.example.focus", "com.example.notes"]);
+  // SpringBoard's word beats CPU; an app it names that is gone changes nothing.
+  assert.deepEqual(D.rankIosApps(apps.slice(0, 2), "11034  24.5     01:16\n90340   0.0 18:08:37\n", "com.example.budget"), ["com.example.budget", "com.example.focus"]);
+  assert.deepEqual(D.rankIosApps(apps.slice(0, 2), "11034  24.5     01:16\n90340   0.0 18:08:37\n", "com.example.gone"), ["com.example.focus", "com.example.budget"]);
+});
+
+test("SpringBoard log: the app last put in front", () => {
+  assert.equal(D.parseIosFront(fixture("log-show-front.txt")), "com.example.budget");
+  assert.equal(D.parseIosFront("Timestamp               Ty Process[PID:TID]\n"), null);
+  assert.equal(D.logStart(new Date(2026, 9, 31, 13, 5, 4).getTime()), "2026-10-31 13:05:04");
 });
 
 test("dumpsys: the app in front, launchers and system apps hidden", () => {

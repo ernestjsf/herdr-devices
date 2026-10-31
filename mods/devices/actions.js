@@ -80,16 +80,30 @@ async function listAvds() {
   return (avdList = { avds, apis });
 }
 
-// A simulator's user apps, the one most likely on screen first: ps tells which
-// use CPU (ps exits 1 when a process is gone but still prints the rest). Without
-// it they stay sorted by id.
+// The app SpringBoard last put in front on a simulator, from its log: the
+// first ask reads the last 30 minutes (about 2 s), later ones from the
+// previous ask on (under 1 s). Null until it logs one; the last answer when
+// the log can't be read.
+const front = {}; // udid -> { id, at: when the log was last read }
+async function simFront(d) {
+  const f = front[d.id], at = Date.now();
+  const since = f ? ["--start", D.logStart(f.at - 5000)] : ["--last", "30m"];
+  const r = await tool("xcrun", ["simctl", "spawn", d.id, "log", "show", ...since, "--style", "compact", "--predicate", D.FRONT_PREDICATE]).catch(() => null);
+  if (r?.code !== 0) return f?.id ?? null;
+  front[d.id] = { id: D.parseIosFront(r.stdout) ?? f?.id ?? null, at };
+  return front[d.id].id;
+}
+
+// A simulator's user apps, the one on screen first: SpringBoard's log says
+// which, else ps tells which use CPU (ps exits 1 when a process is gone but
+// still prints the rest). Without either they stay sorted by id.
 async function simApps(d) {
   const r = await tool("xcrun", ["simctl", "spawn", d.id, "launchctl", "list"]);
   if (r?.code !== 0) return [];
   const apps = D.parseIosApps(r.stdout);
   if (!apps.length) return [];
-  const ps = await exec("ps", ["-o", "pid=,%cpu=,etime=", "-p", apps.map((a) => a.pid).join(",")]).catch(() => null);
-  return D.rankIosApps(apps, ps?.stdout ?? "");
+  const [ps, frontId] = await Promise.all([exec("ps", ["-o", "pid=,%cpu=,etime=", "-p", apps.map((a) => a.pid).join(",")]).catch(() => null), simFront(d)]);
+  return D.rankIosApps(apps, ps?.stdout ?? "", frontId);
 }
 
 // Puts the cached apps on the booted rows and asks every booted device again in
@@ -98,7 +112,7 @@ async function simApps(d) {
 function withApps(devices) {
   for (const d of devices) {
     const key = D.deviceKey(d);
-    if (d.state !== "on") { delete apps[key]; continue; }
+    if (d.state !== "on") { delete apps[key]; delete front[d.id]; continue; }
     d.apps = apps[key] ?? [];
     if (askingApps.has(key)) continue;
     askingApps.add(key);

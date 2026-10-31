@@ -1,0 +1,4 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-31 13:12:20.296 Df SpringBoard[60445:2f251] [com.apple.SpringBoard:Common] Application process state changed for com.example.mytable: <SBApplicationProcessState: 0x1078c4be0; pid: 46584; taskState: Running; visibility: Foreground>
+2026-10-31 13:12:21.219 Df SpringBoard[60445:2f251] [com.apple.SpringBoard:Common] Application process state changed for com.example.mytable: <SBApplicationProcessState: 0x108167580; pid: 46584; taskState: Running; visibility: Foreground>
+2026-10-31 13:12:27.189 Df SpringBoard[60445:2f251] [com.apple.SpringBoard:Common] Application process state changed for com.example.budget: <SBApplicationProcessState: 0x12a264780; pid: 90340; taskState: Running; visibility: Foreground>

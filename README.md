@@ -15,7 +15,7 @@ the everyday actions one click away.
   terminal. Android devices are polled every 5 s; the AVD list updates when an
   AVD is added or removed.
 - Devices booted from a terminal count as recent too.
-- A booted device shows the app running on it after its version, as the last part of its id (`com.example.budget` shows `budget`); hover for the full id. Nothing shows for an idle device. With several iOS apps running it is the one using CPU most recently, since the simulator suspends backgrounded apps.
+- A booted device shows the app running on it as a tag after its name, the last part of its id (`com.example.budget` shows `budget`); hover for the full id. Nothing shows for an idle device. With several iOS apps running it is the one SpringBoard last put in front (from the simulator's log, read over the last 30 minutes at first); until that log says, the one using CPU most recently.
 - The last list paints instantly on open. Under 160 px the panel becomes a rail.
 
 ## Actions
@@ -45,7 +45,7 @@ shown.
 
 ## What it runs
 
-Only local tools, always as argument lists: `xcrun simctl` (also `simctl spawn <udid> launchctl list` to see which apps run), `ps` (which simulator app is using CPU), `open`, `emulator`,
+Only local tools, always as argument lists: `xcrun simctl` (also `simctl spawn <udid> launchctl list` to see which apps run, and `simctl spawn <udid> log show` for the one SpringBoard put in front), `ps` (which simulator app is using CPU), `open`, `emulator`,
 `adb` (also `shell dumpsys activity activities` to see the app in front), `pgrep` (is a started emulator still running), `rm` (an AVD's
 `snapshots/` on erase), and `sh` to start the emulator detached with its output
 in the log. It lists the AVD home (`$ANDROID_AVD_HOME`, else `~/.android/avd`)
