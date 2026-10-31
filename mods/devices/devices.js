@@ -155,8 +155,13 @@ const deviceQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 const REMOTE_SHOT = "/sdcard/herdr-devices-shot.png";
 
-// Where a detached emulator's output goes: $TMPDIR/herdr-devices-<avd>.log.
-export const emulatorLogPath = (tmp, avd) => `${(tmp || "/tmp").replace(/\/+$/, "")}/herdr-devices-${avd}.log`;
+// Where a detached emulator's output goes: $TMPDIR/herdr-devices-<avd>.log,
+// else the user's own cache folder (never the shared /tmp, where a predictable
+// name could be a planted symlink).
+export function emulatorLogPath({ tmp, home, os }, avd) {
+  const dir = tmp ? tmp.replace(/\/+$/, "") : os === "Darwin" ? `${home}/Library/Caches/herdr-devices` : `${home}/.cache/herdr-devices`;
+  return `${dir}/herdr-devices-${avd}.log`;
+}
 
 // `pgrep -f` pattern for an emulator of this AVD: `-avd <name>`, then a space
 // or the end, so Pixel_7 doesn't match Pixel_7_API_34.
@@ -166,7 +171,7 @@ export const avdProcessPattern = (avd) => `-avd ${avd.replace(/[.*+?^${}()|[\]\\
 export const lastLine = (text) => (text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? null;
 
 // Starts a program detached with its output in a log: sh -c DETACH sh <log> <argv...>.
-const DETACH = 'log=$1; shift; nohup "$@" >"$log" 2>&1 &';
+const DETACH = 'log=$1; shift; mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 2>&1 &';
 
 // What a row offers, in menu order.
 export function actionsFor(d) {

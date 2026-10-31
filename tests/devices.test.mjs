@@ -137,7 +137,7 @@ test("commands are argument lists", () => {
   const avd = { kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "parity-api36", state: "on" };
   const x = { adb: "/sdk/adb", emulator: "/sdk/emulator", log: "/tmp/herdr-devices-parity-api36.log", path: "/Users/me/Desktop/a.png", url: "https://x.test/?a=1&b='2'", avdPath: "/Users/me/.android/avd/parity-api36.avd" };
   assert.deepEqual(D.stepsFor("boot", sim, x), [{ argv: ["xcrun", "simctl", "boot", "UDID-1"], ok: [0, 149] }, { argv: ["open", "-a", "Simulator"] }]);
-  assert.deepEqual(D.stepsFor("boot", avd, x), [{ argv: ["sh", "-c", 'log=$1; shift; nohup "$@" >"$log" 2>&1 &', "sh", "/tmp/herdr-devices-parity-api36.log", "/sdk/emulator", "-avd", "parity-api36"] }]);
+  assert.deepEqual(D.stepsFor("boot", avd, x), [{ argv: ["sh", "-c", 'log=$1; shift; mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 2>&1 &', "sh", "/tmp/herdr-devices-parity-api36.log", "/sdk/emulator", "-avd", "parity-api36"] }]);
   assert.deepEqual(D.stepsFor("shutdown", avd, x), [{ argv: ["/sdk/adb", "-s", "emulator-5554", "emu", "kill"] }]);
   assert.deepEqual(D.stepsFor("screenshot", sim, x), [{ argv: ["xcrun", "simctl", "io", "UDID-1", "screenshot", "/Users/me/Desktop/a.png"] }]);
   assert.deepEqual(D.stepsFor("screenshot", avd, x).map((s) => s.argv.slice(3)), [["shell", "screencap", "-p", "/sdcard/herdr-devices-shot.png"], ["pull", "/sdcard/herdr-devices-shot.png", "/Users/me/Desktop/a.png"], ["shell", "rm", "-f", "/sdcard/herdr-devices-shot.png"]]);
@@ -186,8 +186,10 @@ test("phases: booting until booted (an AVD until boot_completed), stopping until
 });
 
 test("an AVD launch: its log, its process, and when the settle pass gives up on it", () => {
-  assert.equal(D.emulatorLogPath("/var/folders/xy/T/", "parity-api36"), "/var/folders/xy/T/herdr-devices-parity-api36.log");
-  assert.equal(D.emulatorLogPath("", "parity-api36"), "/tmp/herdr-devices-parity-api36.log");
+  assert.equal(D.emulatorLogPath({ tmp: "/var/folders/xy/T/", home: "/Users/me", os: "Darwin" }, "parity-api36"), "/var/folders/xy/T/herdr-devices-parity-api36.log");
+  // No TMPDIR: the user's cache folder, never the shared /tmp.
+  assert.equal(D.emulatorLogPath({ tmp: "", home: "/Users/me", os: "Darwin" }, "parity-api36"), "/Users/me/Library/Caches/herdr-devices/herdr-devices-parity-api36.log");
+  assert.equal(D.emulatorLogPath({ tmp: "", home: "/home/me", os: "Linux" }, "parity-api36"), "/home/me/.cache/herdr-devices/herdr-devices-parity-api36.log");
   // pgrep -f matches against the whole command line.
   const running = (avd, cmd) => new RegExp(D.avdProcessPattern(avd)).test(cmd);
   assert.ok(running("Pixel_7", "/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64 -avd Pixel_7 -wipe-data"));

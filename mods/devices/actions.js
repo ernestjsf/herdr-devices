@@ -12,12 +12,12 @@ let avdBySerial = {}; // running emulator's serial -> AVD name, while adb lists 
 const asking = new Set(); // serials whose name is being asked for
 let avdList = null; // { avds, apis }, until forgetAvds()
 
-// The Android SDK's env vars and TMPDIR, read once from the login environment.
+// The Android SDK's env vars, TMPDIR and the OS name, read once from the login environment.
 function sdkEnv() {
-  sdk ??= exec("sh", ["-c", 'printf "%s\\n%s\\n%s\\n%s" "$ANDROID_HOME" "$ANDROID_SDK_ROOT" "$ANDROID_AVD_HOME" "$TMPDIR"'])
+  sdk ??= exec("sh", ["-c", 'printf "%s\\n%s\\n%s\\n%s\\n%s" "$ANDROID_HOME" "$ANDROID_SDK_ROOT" "$ANDROID_AVD_HOME" "$TMPDIR" "$(uname -s)"'])
     .then((r) => r.stdout.split("\n"))
-    .catch(() => ["", "", "", ""])
-    .then(([androidHome = "", sdkRoot = "", avdHome = "", tmp = ""]) => ({ androidHome, sdkRoot, avdHome, tmp, home: home() }));
+    .catch(() => ["", "", "", "", ""])
+    .then(([androidHome = "", sdkRoot = "", avdHome = "", tmp = "", os = ""]) => ({ androidHome, sdkRoot, avdHome, tmp, os, home: home() }));
   return sdk;
 }
 
@@ -116,7 +116,7 @@ export async function focus(d) {
 }
 
 // What an emulator this mod started printed.
-const emulatorLog = async (avd) => D.emulatorLogPath((await sdkEnv()).tmp, avd);
+const emulatorLog = async (avd) => D.emulatorLogPath(await sdkEnv(), avd);
 
 // Whether an emulator of this AVD is running (pgrep exits 1 when none is; not
 // knowing counts as running).
