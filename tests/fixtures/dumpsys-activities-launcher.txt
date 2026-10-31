@@ -1,0 +1,5 @@
+ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
+Display #0 (activities from top to bottom):
+  * Task{2f94749 #1 type=home U=0 visible=true mode=fullscreen sz=1}
+      topResumedActivity=ActivityRecord{82853160 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t2}
+  ResumedActivity: ActivityRecord{82853160 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t2}

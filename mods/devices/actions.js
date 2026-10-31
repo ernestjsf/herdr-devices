@@ -11,6 +11,8 @@ let sdk = null;
 let avdBySerial = {}; // running emulator's serial -> AVD name, while adb lists it
 const asking = new Set(); // serials whose name is being asked for
 let avdList = null; // { avds, apis }, until forgetAvds()
+const apps = {}; // device key -> its user apps' ids, while it is on
+const askingApps = new Set(); // keys whose apps are being asked for
 
 // The Android SDK's env vars, TMPDIR and the OS name, read once from the login environment.
 function sdkEnv() {
@@ -78,13 +80,41 @@ async function listAvds() {
   return (avdList = { avds, apis });
 }
 
+// Puts the cached apps on the booted rows and asks every booted device again in
+// the background (a slow one can't hold up a read; its apps show from the next
+// read). Other rows lose their cache entry. A change nudges the panels to read.
+function withApps(devices) {
+  for (const d of devices) {
+    const key = D.deviceKey(d);
+    if (d.state !== "on") { delete apps[key]; continue; }
+    d.apps = apps[key] ?? [];
+    if (askingApps.has(key)) continue;
+    askingApps.add(key);
+    const [args, parse] = d.kind === "sim"
+      ? [["simctl", "spawn", d.id, "launchctl", "list"], D.parseIosApps]
+      : [["-s", d.serial, "shell", "dumpsys", "activity", "activities"], D.parseAndroidApp];
+    tool(d.kind === "sim" ? "xcrun" : "adb", args)
+      .then((r) => (r?.code === 0 ? parse(r.stdout) : []), () => [])
+      .then((ids) => {
+        const changed = (apps[key] ?? []).join() !== ids.join();
+        apps[key] = ids;
+        if (changed) setShared("devices.changed", Date.now());
+      })
+      .finally(() => askingApps.delete(key));
+  }
+}
+
 // { sections, error }
 export async function loadIos() {
   let sims;
   try { sims = await tool("xcrun", ["simctl", "list", "devices", "-j"]); } catch (e) { return { sections: [], error: D.rejectionLine(e, "simctl list") }; }
   if (!sims) return { sections: [], error: "xcrun not found" };
   if (sims.code !== 0) return { sections: [], error: D.errorLine(sims) };
-  try { return { sections: D.parseSimctl(sims.stdout), error: null }; } catch { return { sections: [], error: "simctl printed something unreadable" }; }
+  try {
+    const sections = D.parseSimctl(sims.stdout);
+    withApps(sections.flatMap((s) => s.devices));
+    return { sections, error: null };
+  } catch { return { sections: [], error: "simctl printed something unreadable" }; }
 }
 
 // { devices, notes }
@@ -100,7 +130,9 @@ export async function loadAndroid() {
   else if (typeof adbList === "string") notes.push(adbList);
   else if (adbList.code !== 0) notes.push(`adb: ${D.errorLine(adbList)}`);
   const adb = adbList?.code === 0 ? D.parseAdbDevices(adbList.stdout) : [];
-  return { devices: D.androidDevices(avds, adb, await avdNames(adb), apis), notes };
+  const devices = D.androidDevices(avds, adb, await avdNames(adb), apis);
+  withApps(devices);
+  return { devices, notes };
 }
 
 // Whether a running emulator has finished booting.
@@ -164,12 +196,12 @@ function mark(name, key, value) {
   setShared(name, next);
 }
 
-const VERB = { boot: "boot", shutdown: "shut down", screenshot: "take a screenshot of", openurl: "open the URL on", erase: "erase" };
-const LABEL = { boot: "Boot", shutdown: "Shut down", screenshot: "Screenshot", openurl: "Open URL", erase: "Erase" };
+const VERB = { boot: "boot", shutdown: "shut down", screenshot: "take a screenshot of", openurl: "open the URL on", stop: "stop the app on", erase: "erase" };
+const LABEL = { boot: "Boot", shutdown: "Shut down", screenshot: "Screenshot", openurl: "Open URL", stop: "Stop", erase: "Erase" };
 
 // Runs an action on a device, stopping at the first failure, and toasts what
-// happened. Every panel copy reloads after. `url`: for openurl.
-export async function perform(action, d, { url } = {}) {
+// happened. Every panel copy reloads after. `url`: for openurl, `app`: for stop.
+export async function perform(action, d, { url, app } = {}) {
   const fail = (message) => {
     mark("devices.pending", D.deviceKey(d), undefined);
     notify({ level: "error", title: `Couldn't ${VERB[action]} ${d.name}`, body: message });
@@ -181,7 +213,7 @@ export async function perform(action, d, { url } = {}) {
   mark("devices.used", key, Date.now());
   if (action === "boot" || action === "shutdown") phase(action === "boot" ? "booting" : "stopping");
   try {
-    const x = { url, path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
+    const x = { url, app, path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
     if (d.kind !== "sim") {
       x.adb = await toolPath("adb");
       const launch = action === "boot" || action === "erase";

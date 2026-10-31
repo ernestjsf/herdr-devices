@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec } from "herdr";
-import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
+import { actionsFor, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
@@ -19,9 +19,9 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
-function copy(d, cx) {
-  cx.write_to_clipboard(d.id);
-  notify({ level: "success", title: "Copied", body: d.id, timeout: 2000 });
+function copy(text, cx) {
+  cx.write_to_clipboard(text);
+  notify({ level: "success", title: "Copied", body: text, timeout: 2000 });
 }
 
 function openDialog(role, d) {
@@ -186,6 +186,7 @@ class Panel {
       .when(!rail, (el) => el
         .child(div().min_w(0).truncate().text_color(t.foreground).when(on, (n) => n.font_semibold()).child(d.name))
         .child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail ?? ""))
+        .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).min_w(0).truncate().text_size(11).text_color(t.dim).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
         .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
         .child(div().flex_1())
         .when(hovered, (n) => n.children(hoverActions(d, phase).map((a) =>
@@ -281,11 +282,11 @@ class Menu {
   choose(i, cx) {
     const a = this.items[i], { overlay } = props(), d = this.device;
     if (!a || this.busy >= 0) return;
-    if (a.action === "copy") { copy(d, cx); closeOverlay(overlay); return; }
+    if (a.action === "copy" || a.action === "copyapp") { copy(a.action === "copy" ? d.id : d.apps[0], cx); closeOverlay(overlay); return; }
     if (a.action === "openurl" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : "erase", d); return; }
     if (a.action === "boot" || a.action === "shutdown") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
     this.busy = i;
-    cx.spawn(async (cx) => { await perform(a.action, d); closeOverlay(overlay); cx.notify(); });
+    cx.spawn(async (cx) => { await perform(a.action, d, { app: a.app }); closeOverlay(overlay); cx.notify(); });
     cx.notify();
   }
 
@@ -304,7 +305,7 @@ class Menu {
       })
       .child(div().h(24).px(8).flex_none().truncate().text_size(11).text_color(t.dim).child(this.device.name))
       .children(this.items.map((a, i) =>
-        h_flex().id(`dm-${a.action}`).h(MENU_ROW).flex_none().px(8).gap(9).rounded(7).items_center().cursor_pointer()
+        h_flex().id(`dm-${a.action}-${i}`).h(MENU_ROW).flex_none().px(8).gap(9).rounded(7).items_center().cursor_pointer()
           .text_color(a.danger ? t.ansi1 : t.foreground)
           .when(i === this.at || i === this.busy, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.choose(i, cx))

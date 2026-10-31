@@ -94,6 +94,23 @@ export function androidDevices(avds, adb, names, apis = {}) {
   return rows;
 }
 
+// `simctl spawn <udid> launchctl list` -> the user apps running, sorted: each
+// app is a `UIKitApplication:<bundle id>[...]` line; Apple's own are dropped.
+export const parseIosApps = (text) =>
+  [...new Set([...text.matchAll(/UIKitApplication:([A-Za-z0-9.-]+)\[/g)].map((m) => m[1]).filter((id) => !id.startsWith("com.apple.")))].sort();
+
+const ANDROID_SYSTEM = /^(com\.android\.|com\.google\.android\.(apps\.nexuslauncher|gms|googlequicksearchbox)|android$)|launcher$/i;
+
+// `dumpsys activity activities` -> [the package in front], or [] when it is a
+// launcher or system app. Older APIs only print mResumedActivity.
+export function parseAndroidApp(text) {
+  const m = /topResumedActivity=ActivityRecord\{\S+ \S+ ([\w.]+)\//.exec(text) ?? /mResumedActivity[=:] ?ActivityRecord\{\S+ \S+ ([\w.]+)\//.exec(text);
+  return m && !ANDROID_SYSTEM.test(m[1]) ? [m[1]] : [];
+}
+
+// "com.example.budget" -> "budget"
+export const appSegment = (id) => id.split(".").pop();
+
 // Where to look for a tool: PATH first, then the Android SDK's homes.
 export function toolCandidates(name, { androidHome, sdkRoot, home }) {
   if (name === "xcrun") return ["xcrun"];
@@ -180,6 +197,10 @@ export function actionsFor(d) {
     else if (d.state === "off") list.push({ action: "boot", label: "Boot", icon: "play" });
   } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
   if (on) list.push({ action: "screenshot", label: "Screenshot", icon: "camera" }, { action: "openurl", label: "Open URL…", icon: "link" });
+  if (on && d.apps?.length) {
+    list.push({ action: "copyapp", label: "Copy app id", icon: "copy" });
+    for (const app of d.apps) list.push({ action: "stop", label: `Stop ${appSegment(app)}`, icon: "square", app });
+  }
   list.push({ action: "copy", label: d.kind === "sim" ? "Copy UDID" : d.serial ? "Copy serial" : "Copy name", icon: "copy" });
   // An AVD is erased by booting it once with -wipe-data, so only while it's off.
   if (d.kind === "sim" || (d.kind === "avd" && d.avd && d.state === "off")) list.push({ action: "erase", label: "Erase…", icon: "trash", danger: true });
@@ -211,6 +232,8 @@ export function stepsFor(action, d, x) {
       return sim
         ? [{ argv: ["xcrun", "simctl", "openurl", d.id, x.url] }]
         : [{ argv: adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", deviceQuote(x.url)) }];
+    case "stop":
+      return sim ? [{ argv: ["xcrun", "simctl", "terminate", d.id, x.app] }] : [{ argv: adb("shell", "am", "force-stop", x.app) }];
     case "erase": {
       if (sim) return [{ argv: ["xcrun", "simctl", "shutdown", d.id], ok: "any", phase: "stopping" }, { argv: ["xcrun", "simctl", "erase", d.id], phase: "erasing" }];
       // Never rm anything but an absolute "<something>.avd" folder's snapshots:

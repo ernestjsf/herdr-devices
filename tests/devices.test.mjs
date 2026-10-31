@@ -1,6 +1,6 @@
 // The mod's parsing and command building, on output captured from macOS.
 // Fixtures: simctl-devices.json and adb-devices-empty.txt are real (home folder
-// renamed); the *-mixed and adb-emu-avd-name files are written by hand in the tools' exact formats, since this machine
+// renamed); the *-mixed, adb-emu-avd-name, launchctl-list and dumpsys-* files are trimmed or hand-written in the tools' exact formats (ids sanitized to com.example.*), since this machine
 // had no running emulator or phone. Run: node --test tests/
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -49,6 +49,27 @@ test("adb devices -l", () => {
     { serial: "0A281FDD4003XZ", state: "unauthorized", model: null },
   ]);
   assert.deepEqual(D.parseAdbDevices("* daemon not running; starting now at tcp:5037\n* daemon started successfully\nList of devices attached\n\n"), []);
+});
+
+test("simctl launchctl list: user apps, sorted, Apple's dropped", () => {
+  assert.deepEqual(D.parseIosApps(fixture("launchctl-list.txt")), ["com.example.budget", "com.example.budget.widget", "com.example.notes"]);
+  assert.deepEqual(D.parseIosApps("-\t0\tcom.apple.SpringBoard.services\n1\t0\tUIKitApplication:com.apple.mobilecal[fd1e][rb-legacy]\n"), []);
+  assert.deepEqual(D.parseIosApps(""), []);
+});
+
+test("dumpsys: the app in front, launchers and system apps hidden", () => {
+  assert.deepEqual(D.parseAndroidApp(fixture("dumpsys-activities-app.txt")), ["com.example.budget"]);
+  assert.deepEqual(D.parseAndroidApp(fixture("dumpsys-activities-launcher.txt")), []);
+  // Older APIs have no topResumedActivity.
+  assert.deepEqual(D.parseAndroidApp(fixture("dumpsys-activities-legacy.txt")), ["com.example.budget"]);
+  for (const pkg of ["com.android.settings", "com.google.android.gms", "com.google.android.googlequicksearchbox", "android", "com.sec.android.app.launcher", "com.miui.home.launcher"])
+    assert.deepEqual(D.parseAndroidApp(`topResumedActivity=ActivityRecord{1 u0 ${pkg}/.A t2}`), [], pkg);
+  assert.deepEqual(D.parseAndroidApp("nothing here"), []);
+});
+
+test("app id segment", () => {
+  assert.equal(D.appSegment("com.example.budget"), "budget");
+  assert.equal(D.appSegment("budget"), "budget");
 });
 
 test("emu avd name: first line, CRLF stripped", () => {
@@ -132,6 +153,17 @@ test("actions per row", () => {
   assert.equal(D.actionsFor({ kind: "sim", id: "U", state: "off" }).find((a) => a.action === "erase").danger, true);
 });
 
+test("copy app id and Stop: only for a booted device with an app, between Open URL and Copy id", () => {
+  const labels = (d) => D.actionsFor(d).map((a) => a.label);
+  const sim = { kind: "sim", id: "U", state: "on", apps: ["com.example.budget", "com.example.notes"] };
+  assert.deepEqual(labels(sim), ["Shut down", "Screenshot", "Open URL…", "Copy app id", "Stop budget", "Stop notes", "Copy UDID", "Erase…"]);
+  assert.deepEqual(D.actionsFor(sim).filter((a) => a.action === "stop").map((a) => a.app), ["com.example.budget", "com.example.notes"]);
+  assert.deepEqual(labels({ kind: "phone", id: "R5", serial: "R5", state: "on", apps: ["com.example.budget"] }), ["Screenshot", "Open URL…", "Copy app id", "Stop budget", "Copy serial"]);
+  assert.ok(!labels({ ...sim, apps: [] }).includes("Copy app id"));
+  assert.ok(!labels({ ...sim, apps: undefined }).includes("Copy app id"));
+  assert.ok(!labels({ ...sim, state: "off" }).includes("Stop budget"));
+});
+
 test("commands are argument lists", () => {
   const sim = { kind: "sim", id: "UDID-1", name: "iPhone", state: "on" };
   const avd = { kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "parity-api36", state: "on" };
@@ -145,6 +177,8 @@ test("commands are argument lists", () => {
   assert.deepEqual(D.stepsFor("openurl", sim, x), [{ argv: ["xcrun", "simctl", "openurl", "UDID-1", "https://x.test/?a=1&b='2'"] }]);
   // adb shell hands its words to the device's shell: the URL arrives single-quoted.
   assert.equal(D.stepsFor("openurl", avd, x)[0].argv.at(-1), `'https://x.test/?a=1&b='\\''2'\\'''`);
+  assert.deepEqual(D.stepsFor("stop", sim, { ...x, app: "com.example.budget" }), [{ argv: ["xcrun", "simctl", "terminate", "UDID-1", "com.example.budget"] }]);
+  assert.deepEqual(D.stepsFor("stop", avd, { ...x, app: "com.example.budget" }), [{ argv: ["/sdk/adb", "-s", "emulator-5554", "shell", "am", "force-stop", "com.example.budget"] }]);
   // The row spins "stopping", then "erasing".
   assert.deepEqual(D.stepsFor("erase", sim, x), [{ argv: ["xcrun", "simctl", "shutdown", "UDID-1"], ok: "any", phase: "stopping" }, { argv: ["xcrun", "simctl", "erase", "UDID-1"], phase: "erasing" }]);
   // An AVD: only its snapshots/ goes, then the emulator's own wipe, detached and logged.

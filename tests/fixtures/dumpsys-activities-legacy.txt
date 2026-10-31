@@ -1,0 +1,4 @@
+ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
+  Display #0 (activities from top to bottom):
+    mResumedActivity: ActivityRecord{3a9f1c2 u0 com.example.budget/.MainActivity t12}
+    mFocusedActivity: ActivityRecord{3a9f1c2 u0 com.example.budget/.MainActivity t12}

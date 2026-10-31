@@ -1,0 +1,7 @@
+ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
+Display #0 (activities from top to bottom):
+  * Task{2f94749 #1 type=home U=0 visible=true mode=fullscreen sz=1}
+    * Task{4c1a9d2 #293 type=standard A=10210:com.example.budget U=0 visible=true mode=fullscreen sz=1}
+    topResumedActivity=ActivityRecord{19659678 u0 com.example.budget/.MainActivity t293}
+    * Hist  #0: ActivityRecord{19659678 u0 com.example.budget/.MainActivity t293}
+  ResumedActivity: ActivityRecord{19659678 u0 com.example.budget/.MainActivity t293}
