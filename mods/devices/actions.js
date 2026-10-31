@@ -8,12 +8,12 @@ const found = {}; // tool -> the path that started
 const missing = {}; // tool -> when none of its paths started
 let sdk = null;
 
-// The Android SDK's env vars, read once from the login environment.
+// The Android SDK's env vars and TMPDIR, read once from the login environment.
 function sdkEnv() {
-  sdk ??= exec("sh", ["-c", 'printf "%s\\n%s\\n%s" "$ANDROID_HOME" "$ANDROID_SDK_ROOT" "$ANDROID_AVD_HOME"'])
+  sdk ??= exec("sh", ["-c", 'printf "%s\\n%s\\n%s\\n%s" "$ANDROID_HOME" "$ANDROID_SDK_ROOT" "$ANDROID_AVD_HOME" "$TMPDIR"'])
     .then((r) => r.stdout.split("\n"))
-    .catch(() => ["", "", ""])
-    .then(([androidHome = "", sdkRoot = "", avdHome = ""]) => ({ androidHome, sdkRoot, avdHome, home: home() }));
+    .catch(() => ["", "", "", ""])
+    .then(([androidHome = "", sdkRoot = "", avdHome = "", tmp = ""]) => ({ androidHome, sdkRoot, avdHome, tmp, home: home() }));
   return sdk;
 }
 
@@ -93,6 +93,21 @@ export async function focus(d) {
   if (d.kind === "sim") await exec("open", ["-a", "Simulator"]).catch(() => null);
 }
 
+// What an emulator this mod started printed.
+const emulatorLog = async (avd) => D.emulatorLogPath((await sdkEnv()).tmp, avd);
+
+// Whether an emulator of this AVD is running (pgrep exits 1 when none is; not
+// knowing counts as running).
+export async function emulatorRunning(avd) {
+  const r = await exec("pgrep", ["-f", "--", D.avdProcessPattern(avd)]).catch(() => null);
+  return r?.code !== 1;
+}
+
+// The last line an emulator this mod started printed before it exited.
+export async function emulatorLastLine(avd) {
+  return D.lastLine(await readTextFile(await emulatorLog(avd)).catch(() => null)) ?? "emulator exited";
+}
+
 // $ANDROID_AVD_HOME, else ~/.android/avd.
 async function avdHome() {
   const env = await sdkEnv();
@@ -129,12 +144,13 @@ export async function perform(action, d, { url } = {}) {
   };
   const key = D.deviceKey(d);
   mark("devices.used", key, Date.now());
-  if (action === "boot" || action === "shutdown") mark("devices.pending", key, { phase: action === "boot" ? "booting" : "stopping", at: Date.now() });
+  // An AVD's entry names it: the settle pass checks on its emulator.
+  if (action === "boot" || action === "shutdown") mark("devices.pending", key, { phase: action === "boot" ? "booting" : "stopping", at: Date.now(), ...(d.avd && { avd: d.avd }) });
   try {
     const x = { url, path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
     if (d.kind !== "sim") {
       x.adb = await toolPath("adb");
-      if (action === "boot") x.emulator = await toolPath("emulator");
+      if (action === "boot") { x.emulator = await toolPath("emulator"); x.log = await emulatorLog(d.avd); }
       if (action === "erase") {
         // Its files are deleted, so it must not be running: ask adb now, not the last poll.
         const list = await tool("adb", ["devices", "-l"]);

@@ -127,9 +127,9 @@ test("actions per row", () => {
 test("commands are argument lists", () => {
   const sim = { kind: "sim", id: "UDID-1", name: "iPhone", state: "on" };
   const avd = { kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "parity-api36", state: "on" };
-  const x = { adb: "/sdk/adb", emulator: "/sdk/emulator", path: "/Users/me/Desktop/a.png", url: "https://x.test/?a=1&b='2'", avdPath: "/Users/me/.android/avd/parity-api36.avd" };
+  const x = { adb: "/sdk/adb", emulator: "/sdk/emulator", log: "/tmp/herdr-devices-parity-api36.log", path: "/Users/me/Desktop/a.png", url: "https://x.test/?a=1&b='2'", avdPath: "/Users/me/.android/avd/parity-api36.avd" };
   assert.deepEqual(D.stepsFor("boot", sim, x), [{ argv: ["xcrun", "simctl", "boot", "UDID-1"], ok: [0, 149] }, { argv: ["open", "-a", "Simulator"] }]);
-  assert.deepEqual(D.stepsFor("boot", avd, x), [{ argv: ["sh", "-c", 'nohup "$1" -avd "$2" >/dev/null 2>&1 &', "sh", "/sdk/emulator", "parity-api36"] }]);
+  assert.deepEqual(D.stepsFor("boot", avd, x), [{ argv: ["sh", "-c", 'log=$1; shift; nohup "$@" >"$log" 2>&1 &', "sh", "/tmp/herdr-devices-parity-api36.log", "/sdk/emulator", "-avd", "parity-api36"] }]);
   assert.deepEqual(D.stepsFor("shutdown", avd, x), [{ argv: ["/sdk/adb", "-s", "emulator-5554", "emu", "kill"] }]);
   assert.deepEqual(D.stepsFor("screenshot", sim, x), [{ argv: ["xcrun", "simctl", "io", "UDID-1", "screenshot", "/Users/me/Desktop/a.png"] }]);
   assert.deepEqual(D.stepsFor("screenshot", avd, x).map((s) => s.argv.slice(3)), [["shell", "screencap", "-p", "/sdcard/herdr-devices-shot.png"], ["pull", "/sdcard/herdr-devices-shot.png", "/Users/me/Desktop/a.png"], ["shell", "rm", "-f", "/sdcard/herdr-devices-shot.png"]]);
@@ -175,6 +175,29 @@ test("phases: booting until booted (an AVD until boot_completed), stopping until
   assert.equal(D.phaseOf(sim("z", "shutting down")), "stopping");
   assert.equal(D.phaseOf(sim("z", "on")), null);
   assert.deepEqual([D.glyphOf(sim("z", "on"), null), D.glyphOf(sim("z", "off"), null), D.glyphOf(sim("z", "off"), "booting"), D.glyphOf({ state: "unauthorized" }, null)], ["on", "off", "spin", "warn"]);
+});
+
+test("an AVD launch: its log, its process, and when the settle pass gives up on it", () => {
+  assert.equal(D.emulatorLogPath("/var/folders/xy/T/", "parity-api36"), "/var/folders/xy/T/herdr-devices-parity-api36.log");
+  assert.equal(D.emulatorLogPath("", "parity-api36"), "/tmp/herdr-devices-parity-api36.log");
+  // pgrep -f matches against the whole command line.
+  const running = (avd, cmd) => new RegExp(D.avdProcessPattern(avd)).test(cmd);
+  assert.ok(running("Pixel_7", "/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64 -avd Pixel_7 -wipe-data"));
+  assert.ok(running("Pixel_7", "/sdk/emulator/emulator -avd Pixel_7"));
+  assert.ok(!running("Pixel_7", "/sdk/emulator/emulator -avd Pixel_7_API_34"));
+  assert.ok(!running("Pixel.7", "/sdk/emulator/emulator -avd PixelX7"));
+  assert.equal(D.lastLine("INFO    | Android emulator version 36.1.9\nPANIC: Unknown AVD name [nope], use -list-avds to see valid list.\n\n"), "PANIC: Unknown AVD name [nope], use -list-avds to see valid list.");
+  assert.equal(D.lastLine(""), null);
+  assert.equal(D.lastLine(null), null);
+  const p = { phase: "booting", at: 1000000, avd: "Pixel_7" };
+  assert.equal(D.launchStep(p, 1005000, false), "wait");
+  assert.equal(D.launchStep(p, 1011000, false), "check");
+  assert.equal(D.launchStep(p, 1011000, false, true), "wait");
+  assert.equal(D.launchStep(p, 1011000, false, false), "gone");
+  assert.equal(D.launchStep(p, 1011000, true), "done");
+  assert.equal(D.launchStep(p, 1181001, false), "late");
+  // An ended launch leaves the pending list at once.
+  assert.deepEqual(D.settlePending({ "avd:Pixel_7": p, "sim:a": { phase: "booting", at: 1000000 } }, [], 1011000, new Set(), new Set(["avd:Pixel_7"])), { "sim:a": { phase: "booting", at: 1000000 } });
 });
 
 test("hover icons and the row click", () => {

@@ -6,8 +6,8 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec } from "herdr";
-import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, phaseOf, glyphOf, hoverActions, primaryAction, footerText } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, focus, perform } from "./actions.js";
+import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, phaseOf, glyphOf, hoverActions, primaryAction, footerText } from "./devices.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, focus, perform } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -99,17 +99,26 @@ class Panel {
 
   devices() { return [...(this.ios?.sections ?? []).flatMap((s) => s.devices), ...(this.android?.devices ?? [])]; }
 
-  // Ends the booting / stopping phases that got where they were going.
+  // Ends the booting / stopping phases that got where they were going, and an
+  // AVD launch whose emulator exited (toasting the last line it printed).
   async settle() {
     const pending = shared("devices.pending") ?? {};
     if (!Object.keys(pending).length) return;
-    const completed = new Set();
-    for (const d of this.devices()) {
-      const key = deviceKey(d);
-      if (d.kind === "avd" && d.state === "on" && pending[key]?.phase === "booting" && (await bootCompleted(d.serial))) completed.add(key);
+    const byKey = new Map(this.devices().map((d) => [deviceKey(d), d]));
+    const completed = new Set(), gone = {};
+    for (const [key, p] of Object.entries(pending)) {
+      if (!p.avd || p.phase !== "booting") continue;
+      const d = byKey.get(key), at = Date.now();
+      let step = launchStep(p, at, d?.state === "on" && (await bootCompleted(d.serial)));
+      if (step === "check") step = launchStep(p, at, false, await emulatorRunning(p.avd));
+      if (step === "done") completed.add(key);
+      else if (step === "gone") gone[key] = await emulatorLastLine(p.avd);
     }
     const now = shared("devices.pending") ?? {}; // read again: a press may have landed meanwhile
-    const next = settlePending(now, this.devices(), Date.now(), completed);
+    // Only the same launch, once: another copy may have ended it meanwhile.
+    const ended = new Set(Object.keys(gone).filter((key) => now[key]?.at === pending[key].at));
+    for (const key of ended) notify({ level: "error", title: `Couldn't boot ${now[key].avd}`, body: gone[key] });
+    const next = settlePending(now, this.devices(), Date.now(), completed, ended);
     if (Object.keys(next).length !== Object.keys(now).length) setShared("devices.pending", next);
   }
 

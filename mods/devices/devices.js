@@ -142,6 +142,19 @@ const deviceQuote = (s) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 const REMOTE_SHOT = "/sdcard/herdr-devices-shot.png";
 
+// Where a detached emulator's output goes: $TMPDIR/herdr-devices-<avd>.log.
+export const emulatorLogPath = (tmp, avd) => `${(tmp || "/tmp").replace(/\/+$/, "")}/herdr-devices-${avd}.log`;
+
+// `pgrep -f` pattern for an emulator of this AVD: `-avd <name>`, then a space
+// or the end, so Pixel_7 doesn't match Pixel_7_API_34.
+export const avdProcessPattern = (avd) => `-avd ${avd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`;
+
+// The last line with something on it, or null.
+export const lastLine = (text) => (text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? null;
+
+// Starts a program detached with its output in a log: sh -c DETACH sh <log> <argv...>.
+const DETACH = 'log=$1; shift; nohup "$@" >"$log" 2>&1 &';
+
 // What a row offers, in menu order.
 export function actionsFor(d) {
   const on = d.state === "on", list = [];
@@ -167,7 +180,7 @@ export function stepsFor(action, d, x) {
       // 149: already booted. The emulator never returns, so it's started detached.
       return sim
         ? [{ argv: ["xcrun", "simctl", "boot", d.id], ok: [0, 149] }, { argv: ["open", "-a", "Simulator"] }]
-        : [{ argv: ["sh", "-c", 'nohup "$1" -avd "$2" >/dev/null 2>&1 &', "sh", x.emulator, d.avd] }];
+        : [{ argv: ["sh", "-c", DETACH, "sh", x.log, x.emulator, "-avd", d.avd] }];
     case "shutdown":
       return sim ? [{ argv: ["xcrun", "simctl", "shutdown", d.id] }] : [{ argv: adb("emu", "kill") }];
     case "screenshot":
@@ -208,21 +221,34 @@ export function foldRows(sorted, { all = false, pending = {}, keep = 3 } = {}) {
 }
 
 const PENDING_MS = 180000;
+const LAUNCH_GRACE_MS = 10000;
 
 // Boot and shut down are under way from the press until the device gets
 // there (an AVD: until it reports sys.boot_completed, `completed` holds its
-// key), or for at most three minutes. Returns the entries still under way.
-export function settlePending(pending, devices, now, completed = new Set()) {
+// key), or for at most three minutes; `ended` holds keys to end now. Returns
+// the entries still under way.
+export function settlePending(pending, devices, now, completed = new Set(), ended = new Set()) {
   const byKey = new Map(devices.map((d) => [deviceKey(d), d]));
   const next = {};
   for (const [key, p] of Object.entries(pending ?? {})) {
-    if (now - p.at > PENDING_MS) continue;
+    if (now - p.at > PENDING_MS || ended.has(key)) continue;
     const d = byKey.get(key);
     if (p.phase === "booting" && d?.state === "on" && (d.kind !== "avd" || completed.has(key))) continue;
     if (p.phase === "stopping" && (!d || d.state === "off")) continue;
     next[key] = p;
   }
   return next;
+}
+
+// What the settle pass does with an AVD's emulator launch under way (`p`: its
+// pending "booting" entry): "done" once booted; "late" after three minutes;
+// "wait" for its first 10 s; then "check" (is it still running? ask pgrep, and
+// pass the answer as `running`), and "gone" when it isn't.
+export function launchStep(p, now, booted, running) {
+  if (booted) return "done";
+  if (now - p.at > PENDING_MS) return "late";
+  if (now - p.at <= LAUNCH_GRACE_MS) return "wait";
+  return running === undefined ? "check" : running ? "wait" : "gone";
 }
 
 // "booting" | "stopping" | null: a press under way, else simctl's own phases.
