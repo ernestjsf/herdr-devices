@@ -181,7 +181,7 @@ export function actionsFor(d) {
   } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
   if (on) list.push({ action: "screenshot", label: "Screenshot", icon: "camera" }, { action: "openurl", label: "Open URL…", icon: "link" });
   list.push({ action: "copy", label: d.kind === "sim" ? "Copy UDID" : d.serial ? "Copy serial" : "Copy name", icon: "copy" });
-  // An AVD is erased by deleting its files, so only while it's off.
+  // An AVD is erased by booting it once with -wipe-data, so only while it's off.
   if (d.kind === "sim" || (d.kind === "avd" && d.avd && d.state === "off")) list.push({ action: "erase", label: "Erase…", icon: "trash", danger: true });
   return list;
 }
@@ -213,9 +213,14 @@ export function stepsFor(action, d, x) {
         : [{ argv: adb("shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", deviceQuote(x.url)) }];
     case "erase": {
       if (sim) return [{ argv: ["xcrun", "simctl", "shutdown", d.id], ok: "any", phase: "stopping" }, { argv: ["xcrun", "simctl", "erase", d.id], phase: "erasing" }];
-      // Never rm anything but an absolute "<something>.avd" folder's data.
+      // Never rm anything but an absolute "<something>.avd" folder's snapshots:
+      // a quick-boot snapshot would bring the old data back. Then the
+      // emulator's own wipe, detached; the settle pass stops it once booted.
       if (!/^\/.+\.avd$/.test(x.avdPath ?? "")) throw new Error(`Unexpected AVD folder: ${x.avdPath}`);
-      return [{ argv: ["sh", "-c", 'rm -rf "$1"/userdata-qemu.img* "$1"/snapshots', "sh", x.avdPath] }];
+      return [
+        { argv: ["rm", "-rf", `${x.avdPath}/snapshots`], phase: "erasing" },
+        { argv: ["sh", "-c", DETACH, "sh", x.log, x.emulator, "-avd", d.avd, "-wipe-data", "-no-snapshot", "-no-window"] },
+      ];
     }
   }
   throw new Error(`Unknown action: ${action}`);
@@ -279,11 +284,12 @@ export function settlePending(pending, devices, now, completed = new Set(), ende
 }
 
 // What the settle pass does with an AVD's emulator launch under way (`p`: its
-// pending "booting" entry): "done" once booted; "late" after three minutes;
+// pending "booting" entry, or an erase's "erasing" wipe): "done" once booted
+// (a wipe: "kill", it has done its work); "late" after three minutes;
 // "wait" for its first 10 s; then "check" (is it still running? ask pgrep, and
 // pass the answer as `running`), and "gone" when it isn't.
 export function launchStep(p, now, booted, running) {
-  if (booted) return "done";
+  if (booted) return p.phase === "erasing" ? "kill" : "done";
   if (now - p.at > PENDING_MS) return "late";
   if (now - p.at <= LAUNCH_GRACE_MS) return "wait";
   return running === undefined ? "check" : running ? "wait" : "gone";

@@ -109,6 +109,17 @@ export async function bootCompleted(serial) {
   return r?.code === 0 && r.stdout.trim() === "1";
 }
 
+// An erase's wipe has booted, so the AVD is like new: stop it. The row spins
+// "stopping" until it's off.
+export async function endWipe(d) {
+  const key = D.deviceKey(d);
+  if (shared("devices.pending")?.[key]?.phase !== "erasing") return; // another copy got here first
+  mark("devices.pending", key, { phase: "stopping", at: Date.now(), avd: d.avd });
+  notify({ level: "success", title: `Erased ${d.name}`, timeout: 3000 });
+  const r = await tool("adb", ["-s", d.serial, "emu", "kill"]).catch(() => null);
+  if (r?.code !== 0) notify({ level: "error", title: `Couldn't stop ${d.name}`, body: "It's erased and still running without a window: shut it down from the menu." });
+}
+
 // The row click on a booted simulator: Simulator.app to the front.
 // (An emulator's window has no app bundle to activate, so AVDs get nothing.)
 export async function focus(d) {
@@ -173,17 +184,19 @@ export async function perform(action, d, { url } = {}) {
     const x = { url, path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
     if (d.kind !== "sim") {
       x.adb = await toolPath("adb");
-      if (action === "boot") { x.emulator = await toolPath("emulator"); x.log = await emulatorLog(d.avd); }
+      const launch = action === "boot" || action === "erase";
+      if (launch) { x.emulator = await toolPath("emulator"); x.log = await emulatorLog(d.avd); }
       if (action === "erase") {
-        // Its files are deleted, so it must not be running: ask adb now, not the last poll.
+        // It is started to be wiped, so it must not be running (another
+        // instance would refuse): ask adb and pgrep now, not the last poll.
         const list = await tool("adb", ["devices", "-l"]);
         if (list?.code !== 0) return fail("adb didn't answer, so it can't confirm the AVD is off.");
         const names = await avdNames(D.parseAdbDevices(list.stdout), true);
-        if (Object.values(names).includes(d.avd)) return fail("It's running. Shut it down first.");
+        if (Object.values(names).includes(d.avd) || (await emulatorRunning(d.avd))) return fail("It's running. Shut it down first.");
         x.avdPath = await avdFolder(d.avd);
       }
-      if (!x.adb && action !== "boot" && action !== "erase") return fail("adb not found");
-      if (action === "boot" && !x.emulator) return fail("emulator not found");
+      if (!x.adb && !launch) return fail("adb not found");
+      if (launch && !x.emulator) return fail("emulator not found");
     }
     for (const step of D.stepsFor(action, d, x)) {
       if (step.phase) phase(step.phase);
@@ -193,7 +206,8 @@ export async function perform(action, d, { url } = {}) {
       if (step.ok !== "any" && !(step.ok ?? [0]).includes(r.code)) return fail(D.errorLine(r));
     }
     if (action === "screenshot") notify({ level: "success", title: "Screenshot saved", body: x.path, timeout: 4000 });
-    if (action === "erase") {
+    // An AVD's wipe goes on detached ("erasing"); endWipe() finishes it.
+    if (action === "erase" && d.kind === "sim") {
       mark("devices.pending", key, undefined);
       notify({ level: "success", title: `Erased ${d.name}`, timeout: 3000 });
     }

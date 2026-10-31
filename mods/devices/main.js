@@ -7,7 +7,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec } from "herdr";
 import { actionsFor, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, focus, perform, avdHome, forgetAvds } from "./actions.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -114,24 +114,27 @@ class Panel {
   devices() { return [...this.rows("ios"), ...this.rows("android")]; }
 
   // Ends the booting / stopping phases that got where they were going, and an
-  // AVD launch whose emulator exited (toasting the last line it printed).
+  // AVD launch whose emulator exited (toasting the last line it printed). An
+  // erase's wipe that booted is stopped; one past three minutes is given up.
   async settle() {
     const pending = shared("devices.pending") ?? {};
     if (!Object.keys(pending).length) return;
     const byKey = new Map(this.devices().map((d) => [deviceKey(d), d]));
     const completed = new Set(), gone = {};
     for (const [key, p] of Object.entries(pending)) {
-      if (!p.avd || p.phase !== "booting") continue;
+      if (!p.avd || (p.phase !== "booting" && p.phase !== "erasing")) continue;
       const d = byKey.get(key), at = Date.now();
       let step = launchStep(p, at, d?.state === "on" && (await bootCompleted(d.serial)));
       if (step === "check") step = launchStep(p, at, false, await emulatorRunning(p.avd));
       if (step === "done") completed.add(key);
+      else if (step === "kill") await endWipe(d);
       else if (step === "gone") gone[key] = await emulatorLastLine(p.avd);
+      else if (step === "late" && p.phase === "erasing") gone[key] = "The wipe didn't finish in three minutes.";
     }
     const now = shared("devices.pending") ?? {}; // read again: a press may have landed meanwhile
     // Only the same launch, once: another copy may have ended it meanwhile.
     const ended = new Set(Object.keys(gone).filter((key) => now[key]?.at === pending[key].at));
-    for (const key of ended) notify({ level: "error", title: `Couldn't boot ${now[key].avd}`, body: gone[key] });
+    for (const key of ended) notify({ level: "error", title: `Couldn't ${now[key].phase === "erasing" ? "erase" : "boot"} ${now[key].avd}`, body: gone[key] });
     const next = settlePending(now, this.devices(), Date.now(), completed, ended);
     if (Object.keys(next).length !== Object.keys(now).length) setShared("devices.pending", next);
   }
@@ -349,7 +352,7 @@ class Dialog {
       ? `Opens it on ${d.name}${d.kind === "sim" ? " (xcrun simctl openurl)" : " (am start -a android.intent.action.VIEW)"}.`
       : d.kind === "sim"
         ? `Shuts it down and resets it to factory state: every app and its data goes. ${d.name} stays in the list.`
-        : `Deletes its user data and snapshots (userdata-qemu.img*, snapshots/). The next boot starts like a new device.`;
+        : `Deletes its snapshots/, then boots it once without a window with the emulator's -wipe-data and stops it. It starts like a new device.`;
     const button = (id, text, primary, action) => h_flex().id(id).h(32).px(14).items_center().rounded(8).border_1()
       .border_color(primary ? (erase ? t.ansi1 : t.solid) : t.input).bg(primary ? (erase ? t.ansi1 : t.solid) : t.raised)
       .text_color(primary ? (erase ? t.background : t.solid_foreground) : t.foreground).text_size(12.5).font_medium().cursor_pointer()

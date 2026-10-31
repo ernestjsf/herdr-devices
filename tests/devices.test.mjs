@@ -147,7 +147,11 @@ test("commands are argument lists", () => {
   assert.equal(D.stepsFor("openurl", avd, x)[0].argv.at(-1), `'https://x.test/?a=1&b='\\''2'\\'''`);
   // The row spins "stopping", then "erasing".
   assert.deepEqual(D.stepsFor("erase", sim, x), [{ argv: ["xcrun", "simctl", "shutdown", "UDID-1"], ok: "any", phase: "stopping" }, { argv: ["xcrun", "simctl", "erase", "UDID-1"], phase: "erasing" }]);
-  assert.deepEqual(D.stepsFor("erase", { ...avd, state: "off" }, x), [{ argv: ["sh", "-c", 'rm -rf "$1"/userdata-qemu.img* "$1"/snapshots', "sh", "/Users/me/.android/avd/parity-api36.avd"] }]);
+  // An AVD: only its snapshots/ goes, then the emulator's own wipe, detached and logged.
+  assert.deepEqual(D.stepsFor("erase", { ...avd, state: "off" }, x), [
+    { argv: ["rm", "-rf", "/Users/me/.android/avd/parity-api36.avd/snapshots"], phase: "erasing" },
+    { argv: ["sh", "-c", 'log=$1; shift; mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 2>&1 &', "sh", "/tmp/herdr-devices-parity-api36.log", "/sdk/emulator", "-avd", "parity-api36", "-wipe-data", "-no-snapshot", "-no-window"] },
+  ]);
   for (const bad of [null, "", "/", "relative.avd", "/Users/me"]) assert.throws(() => D.stepsFor("erase", avd, { ...x, avdPath: bad }));
 });
 
@@ -221,6 +225,11 @@ test("an AVD launch: its log, its process, and when the settle pass gives up on 
   assert.equal(D.launchStep(p, 1011000, false, false), "gone");
   assert.equal(D.launchStep(p, 1011000, true), "done");
   assert.equal(D.launchStep(p, 1181001, false), "late");
+  // An erase's wipe: stopped once booted; a crashed one ends like a failed boot.
+  const wipe = { ...p, phase: "erasing" };
+  assert.equal(D.launchStep(wipe, 1011000, true), "kill");
+  assert.equal(D.launchStep(wipe, 1011000, false, false), "gone");
+  assert.equal(D.launchStep(wipe, 1181001, false), "late");
   // An ended launch leaves the pending list at once.
   assert.deepEqual(D.settlePending({ "avd:Pixel_7": p, "sim:a": { phase: "booting", at: 1000000 } }, [], 1011000, new Set(), new Set(["avd:Pixel_7"])), { "sim:a": { phase: "booting", at: 1000000 } });
 });
