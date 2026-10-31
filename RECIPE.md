@@ -68,8 +68,8 @@ height 30px per item plus 38px: a 24px line with the device's name at 11px
 `dim`, then 30px rows (radius 7, 9px gap, a 14px icon in `muted`, 12.8px text),
 `selected` for the keyboard choice, `hover` under the pointer. Items, in order:
 Shut down or Boot, Screenshot and `Open URL…` (when on), `Copy UDID` / `Copy
-serial` / `Copy name`, `Erase…` in `ansi1` (icon and text). A running item reads
-`Working…`.
+serial` / `Copy name`, `Erase…` in `ansi1` (icon and text). Boot and Shut down
+close it at once (the row spins); Screenshot reads `Working…` while it runs.
 
 **Dialogs** are 420px wide (Open URL 200px tall, Erase 190px) on `popover`,
 18px padding, 10px gaps, like Herdr's prompt and confirm: a 15px semibold title
@@ -92,25 +92,37 @@ action button reads `Working…` while it runs.
   shows within about a second), every 15 s, after Refresh and after any action.
   Available ones only; `Booted` is on, `Shutdown` off, `Booting` and `Shutting
   Down` are phases, anything else is shown with a triangle.
-- **Android**: every 5 s, after Refresh and after any action: `emulator
-  -list-avds`, `adb devices -l`, for each running `emulator-NNNN` `adb -s
-  <serial> emu avd name` (first line), and each AVD's `<avd home>/<name>.ini`
-  for `target=android-NN`. Every AVD shows, on (with its serial) when a running
+- **Android**: every 5 s, after Refresh and after any action: `adb devices
+  -l`, and for each running `emulator-NNNN` not named yet `adb -s <serial> emu
+  avd name` (first line), all at once and not awaited (a hung one can't hold up
+  the read; the row shows by serial until a later read). A name is kept until
+  adb stops listing its serial. The AVDs are the `<name>.ini` files of the AVD
+  home (`readdir` from `fs/promises`; avd home `$ANDROID_AVD_HOME`, else
+  `~/.android/avd`) with `target=android-NN` from each, listed again only when
+  `watchFolder` on the AVD home reports an `.ini` outside a `<name>.avd/`
+  folder, or on Refresh. Every AVD shows, on (with its serial) when a running
   emulator reports its name; other serials are phones by `model:` (underscores
   as spaces). Each platform's reads never overlap; one asked for meanwhile runs
   right after.
 - **Order and fold**: each section is sorted by the latest of simctl's
-  `lastBootedAt` and this panel's own last action on the device (shared
-  `devices.used`); it shows the three most recent plus every device that isn't
+  `lastBootedAt` and the device's last use (shared `devices.used`: this
+  panel's last action on it, or the read that first saw it on after it was
+  off, booting or offline, wherever it was started; a complete read drops the
+  entries of its platform's devices that are gone); it shows the three most recent plus every device that isn't
   off or has a phase under way. Show all / Show fewer and the header's fold are
   remembered per section title in `localStorage`.
 - **Phases**: Boot and Shut down put the device in the shared
-  `devices.pending` (`booting` / `stopping`, with the time) before they run, so
-  the row spins at once, from the panel or the menu. A read ends a phase when
-  the device gets there: booting when on (an AVD also needs `adb -s <serial>
-  shell getprop sys.boot_completed` to read `1`, asked only while booting),
-  stopping when off or gone; after three minutes in any case; a failed command
-  ends it at once.
+  `devices.pending` (`booting` / `stopping`, with the time, and an AVD's name)
+  before they run, so the row spins at once, from the panel or the menu (which
+  hands them to the panel through the shared `devices.request` and closes).
+  Erase moves a simulator through `stopping` and `erasing`, an AVD through
+  `erasing` and `stopping`. A read ends a phase when the device gets there:
+  booting when on (an AVD also needs `adb -s <serial> shell getprop
+  sys.boot_completed` to read `1`, asked only while booting), stopping when off
+  or gone; after three minutes in any case; a failed command ends it at once.
+  An AVD booting or erasing for over 10 s whose emulator `pgrep -f -- "-avd
+  <name>( |$)"` no longer finds ends at once with `Couldn't boot <name>` (or
+  erase) and the last non-empty line of its log, else `emulator exited`.
 - **Click a row**: it becomes `selected`. Off and bootable (a simulator, a
   known AVD): Boot. A booted simulator: `open -a Simulator`. Anything else:
   nothing (an emulator window has no app to activate).
@@ -118,14 +130,18 @@ action button reads `Working…` while it runs.
   (up, down, enter, esc work).
 - **Actions**:
   - **Boot**: simulator `xcrun simctl boot <udid>` (exit 149, already booted,
-    counts as success), then `open -a Simulator`; AVD `sh -c 'nohup "$1" -avd
-    "$2" >/dev/null 2>&1 &' sh <emulator> <avd>`, so it starts detached.
+    counts as success), then `open -a Simulator`; AVD `sh -c 'log=$1; shift;
+    mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 2>&1 &' sh <log>
+    <emulator> -avd <avd>`, so it starts detached, its output in `<log>` =
+    `$TMPDIR/herdr-devices-<avd>.log` (without `$TMPDIR`,
+    `~/Library/Caches/herdr-devices/`, or `~/.cache/herdr-devices/` off macOS;
+    never the shared `/tmp`).
   - **Shut down**: `xcrun simctl shutdown <udid>`; `adb -s <serial> emu kill`.
   - **Screenshot**: `xcrun simctl io <udid> screenshot <path>`; Android `adb -s
-    <serial> shell screencap -p /sdcard/herdr-devices-shot.png`, `adb pull` it
+    <serial> shell screencap -p /sdcard/herdr-devices-<file>`, `adb pull` it
     to `<path>`, `adb shell rm -f` it (that last step may fail). `<path>` is
-    `~/Desktop/<name>-<YYYYMMDD-HHMMSS>.png` (name characters outside
-    `[A-Za-z0-9._-]` become `-`). Toasts `Screenshot saved` with the path.
+    `~/Desktop/<name>-<YYYYMMDD-HHMMSS>-<ms>.png`, `<file>` its file name (name
+    characters outside `[A-Za-z0-9._-]` become `-`). Toasts `Screenshot saved` with the path.
   - **Copy**: the UDID, serial, or (an off AVD) its name to the clipboard;
     toasts `Copied`.
   - **Open URL…**: the dialog; Enter or Open checks the URL has a scheme
@@ -133,16 +149,23 @@ action button reads `Working…` while it runs.
     -s <serial> shell am start -a android.intent.action.VIEW -d '<url>'` (the
     URL single-quoted for the device's shell, since `adb shell` joins its words).
   - **Erase…**: the dialog; Enter or Erase runs it. Simulator: `xcrun simctl
-    shutdown` (failure ignored), then `xcrun simctl erase <udid>`. AVD: `adb
-    devices -l` and the emulators' names are read again; no answer from adb, or
-    the AVD running, refuses. Otherwise its folder is the `path=` line of `<avd
-    home>/<name>.ini` (avd home `$ANDROID_AVD_HOME`, else `~/.android/avd`),
-    else `<avd home>/<name>.avd`, and `sh -c 'rm -rf "$1"/userdata-qemu.img*
-    "$1"/snapshots' sh <folder>` deletes its data. Toasts `Erased <name>`.
+    shutdown` (failure ignored), then `xcrun simctl erase <udid>`; toasts
+    `Erased <name>`. AVD: `adb devices -l` and the emulators' names are read
+    again and `pgrep` asked; no answer from adb, or the AVD running, refuses.
+    Otherwise its folder is the `path=` line of `<avd home>/<name>.ini`, else
+    `<avd home>/<name>.avd` (refused unless an absolute `*.avd` path); `rm -rf
+    <folder>/snapshots` deletes only its snapshots (a quick-boot snapshot would
+    restore the old data), then the boot launch runs `<emulator> -avd <avd>
+    -wipe-data -no-snapshot -no-window`, logged the same way, and the dialog
+    closes. The row spins `erasing…`; the read that finds it booted
+    (`sys.boot_completed`) runs `adb -s <serial> emu kill`, toasts `Erased
+    <name>` and spins `stopping…` until it's off.
 - An action stops at its first failing command and toasts an error: `Couldn't
   boot <name>` (shut down, take a screenshot of, open the URL on, erase) with
-  the first useful line of stderr, then stdout (simctl's generic `An error was
-  encountered processing the command` line is skipped). A dialog keeps its
+  `<tool> not found` when the program can't be found, `<Action> timed out` when
+  `exec` stopped it after 30 s, else the first useful line of stderr, then
+  stdout (simctl's generic `An error was encountered processing the command`
+  line is skipped). A dialog keeps its
   error on screen and stays open; on success it closes. After any action the
   shared `devices.changed` makes every copy reread.
 - The footer's "ago" is redrawn every 10 s. Nothing animates on a background
@@ -157,28 +180,38 @@ action button reads `Working…` while it runs.
   height, props: { role: "menu", device } })`); `"url"` and `"erase"`, dialogs
   (`kind: "dialog", width: 420, height: 200 | 190, props: { role, device }`).
 - `devices.js`, no herdr import: parsing (`parseSimctl` with `detail` and
-  `lastUsed`, `parseAvds`, `parseAdbDevices`, `parseEmuAvdName`,
+  `lastUsed`, `avdNamesFrom`, `avdListChanged`, `parseAdbDevices`,
+  `parseEmuAvdName`, `nameCache`,
   `androidDevices`, `parseAvdIni`, `avdApi`, `phoneLink`), the row model `{
   kind: "sim" | "avd" | "phone", id, name, state, detail, lastUsed?, serial?,
   avd? }`, `deviceKey` (an AVD by name, so its key survives its serial),
-  `sortRecent`, `foldRows`, `settlePending`, `phaseOf`, `glyphOf`,
+  `sortRecent`, `updateUsed`, `foldRows`, `settlePending`, `launchStep`,
+  `phaseOf`, `glyphOf`,
   `actionsFor` (the menu), `hoverActions` (at most three), `primaryAction` (the
   row click), `stepsFor` (the argv of every action), `footerText`,
-  `toolCandidates`, `errorLine`, `screenshotPath`, `validUrl`.
+  `toolCandidates`, `stillMissing`, `execFailure`, `rejectionLine`,
+  `errorLine`, `emulatorLogPath`, `avdProcessPattern`, `lastLine`,
+  `screenshotPath`, `validUrl`.
 - `actions.js`: `loadIos()`, `loadAndroid()`, `bootCompleted(serial)`,
-  `focus(device)` and `perform(action, device, { url })` through `exec`.
-  `adb` and `emulator` are tried on PATH, then `$ANDROID_HOME`,
-  `$ANDROID_SDK_ROOT` (read once with `sh -c 'printf …'`) and
-  `~/Library/Android/sdk`; the first that starts is kept.
+  `emulatorRunning(avd)`, `emulatorLastLine(avd)`, `endWipe(device)`,
+  `avdHome()`, `forgetAvds()`, `focus(device)` and `perform(action, device, {
+  url })` through `exec`. `adb` and `emulator` are tried from the path that
+  worked last, then PATH, `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` (read once with
+  `$ANDROID_AVD_HOME`, `$TMPDIR` and `uname -s` by `sh -c 'printf …'`) and
+  `~/Library/Android/sdk`; the first that starts is kept. A path that stops
+  starting is dropped and the others tried again; when none starts, the tool
+  is "not found" for a minute.
 - Shared state: `devices.changed` (reread), `devices.pending` (phases),
-  `devices.used` (last action per device). `localStorage` (per copy): `cache`
+  `devices.used` (last use per device), `devices.request` (a Boot or Shut down
+  from the menu, for the panel to run: taken once, ignored after 10 s). `localStorage` (per copy): `cache`
   (the last list) and `folds`.
 - `herdr` functions: `exec`, `home`, `readTextFile`, `watchFolder`, `notify`,
-  `shared` / `setShared`, `openOverlay`, `closeOverlay`, `props`, `theme`.
+  `shared` / `setShared`, `openOverlay`, `closeOverlay`, `props`, `theme`;
+  `readdir` from `fs/promises`.
   gpui-kit: `cx.write_to_clipboard`, `cx.open_url`, `svg(...).spin(900)`,
   `on_hover`, `on_mouse_down("right", …)`, `on_size_change`, `InputState` +
   `Input`.
-- Programs: `xcrun`, `open`, `emulator`, `adb`, `sh`, `rm`. No network of its
+- Programs: `xcrun`, `open`, `emulator`, `adb`, `sh`, `rm`, `pgrep`. No network of its
   own; `Get Xcode` and `Set ANDROID_HOME` open developer.apple.com /
   developer.android.com pages with `cx.open_url`.
 - Icons in `icons/` after Lucide (ISC notice there): devices, refresh, play,
@@ -198,15 +231,27 @@ action button reads `Working…` while it runs.
 - The menu and dialogs are other copies of the mod: anything the panel must see
   from them (phases, last use) goes through `shared`, not `localStorage` (per
   copy) or module variables.
-- A popup's tasks end when it closes: the menu finishes its command
-  (`Working…`) before closing. Copy and the dialogs close it at once.
+- A popup's tasks end when it closes, plain promises included: the menu
+  finishes Screenshot (`Working…`) before closing, and hands Boot and Shut down
+  to the panel through `devices.request`. The panel takes it on its next
+  render, and a window behind another app (Simulator, the emulator) doesn't
+  render: in use the menu was just clicked, so Herdr is in front.
 - `exec` waits for the program and returns text: `adb track-devices` can't
   stream (poll instead), `adb exec-out screencap -p` would corrupt the PNG (go
   through `/sdcard` and `adb pull`), and `emulator -avd` never returns (start it
   through `sh -c 'nohup … &'`, names as positional arguments; the child
   survives `exec` returning).
-- `exec` rejects when a program can't start: catch it per tool, or one missing
-  SDK hides the other platform's list.
+- `exec` rejects when a program can't start (`` `herdr.exec`: cannot run <cmd>:
+  No such file or directory (os error 2) ``, also for a missing `cwd`) and when
+  it runs past 30 s (`` `herdr.exec`: <cmd> took longer than 30 s and was
+  stopped ``; the program is killed): catch it per tool, or one missing SDK
+  hides the other platform's list.
+- `fs/promises` reads only under the home folder: an AVD home elsewhere lists
+  no AVDs.
+- `watchFolder` on the AVD home reports a running emulator's writes inside its
+  `<name>.avd/` (`hardware-qemu.ini` too): react only to `.ini` outside it.
+- The emulator's process is `qemu-system-* -avd <name> …`; anchor the `pgrep`
+  pattern after the name, or `Pixel_7` finds `Pixel_7_API_34`.
 - `watchFolder` on the CoreSimulator folder reports every write of a booted
   simulator: react only to `device.plist`.
 - simctl's first stderr line is a generic preamble; the reason is on line two.
@@ -229,21 +274,24 @@ action button reads `Working…` while it runs.
   draws nothing, so shots repeat byte for byte. Bring Herdr forward first.
 - `done` is the theme's "finished" color, not necessarily green (a pale blue
   in graphite).
-- `devices.used` keeps entries for devices that were deleted.
-- Untested: Android actions on a running emulator or phone, the rail and the
-  dialogs drawn on screen, Linux, zoom other than 1. iOS physical devices
+- Untested: AVD erase run live, Android screenshot / Open URL on a running
+  emulator or phone, the rail and the dialogs drawn on screen, Linux, zoom other than 1. iOS physical devices
   aren't listed (v1.1, `devicectl`).
 
 ## Done when
 
 - `node --test tests/` passes: runtime labels, the captured simctl list (one
   runtime, five simulators, two booted, with versions and lastBootedAt),
-  unavailable simulators hidden and runtimes ordered, AVD names with emulator
-  chatter, `adb devices -l` with emulators, a phone, offline and unauthorized
+  unavailable simulators hidden and runtimes ordered, AVD names from the AVD
+  home's files and which watch events re-list them, the serial -> name cache,
+  `adb devices -l` with emulators, a phone, offline and unauthorized
   rows, AVD/serial mapping with API levels and USB / Wi-Fi, tool candidates,
-  error lines, screenshot paths, recency order (the two booted simulators
-  first in the captured list), the fold (three recent plus running and
-  pending), phases settling (an AVD only after boot_completed, three minutes at
+  exec rejections (missing, timed out, other) and the minute a missing tool is
+  remembered, error lines, screenshot paths with milliseconds, the emulator
+  log path and pgrep pattern, the launch step (wait, check, gone, done, kill,
+  late), recency order (the two booted simulators first in the captured list)
+  and recents from devices that came on, with gone ones dropped, the fold
+  (three recent plus running and pending), phases settling (an AVD only after boot_completed, three minutes at
   most), glyphs, hover icons, the row click, the footer, the menu per row, and
   every action's argv (the URL quoted for `adb shell`, erase refusing a folder
   that isn't an absolute `*.avd`).

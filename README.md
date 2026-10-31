@@ -12,7 +12,9 @@ the everyday actions one click away.
 - Running devices and the three most recent per section; **Show all** for the rest.
 - A status glyph per row: booted, off, booting or stopping, offline.
 - Live: simulators update within a second of a boot or shutdown from any
-  terminal. Android is polled every 5 s.
+  terminal. Android devices are polled every 5 s; the AVD list updates when an
+  AVD is added or removed.
+- Devices booted from a terminal count as recent too.
 - The last list paints instantly on open. Under 160 px the panel becomes a rail.
 
 ## Actions
@@ -22,22 +24,29 @@ Hover for Boot or Shut down, Screenshot and More. Right-click for the full menu.
 
 | Action     | Simulator                          | Android                                              |
 |------------|------------------------------------|------------------------------------------------------|
-| Boot       | `simctl boot`, `open -a Simulator` | `emulator -avd`, detached                            |
+| Boot       | `simctl boot`, `open -a Simulator` | `emulator -avd`, detached, output to a log           |
 | Shut down  | `simctl shutdown`                  | `adb emu kill`                                       |
 | Screenshot | `simctl io screenshot`             | `adb shell screencap`, `adb pull`                    |
 | Copy id    | UDID                               | serial, or the AVD name when off                     |
 | Open URL…  | `simctl openurl`                   | `adb shell am start -a android.intent.action.VIEW`   |
-| Erase…     | `simctl erase` (factory reset)     | deletes the AVD's `userdata-qemu.img*` and `snapshots/` |
+| Erase…     | `simctl erase` (factory reset)     | deletes the AVD's `snapshots/`, boots it once with `emulator -wipe-data -no-snapshot -no-window`, stops it when booted |
 
 Erase lives in the menu only and asks first. An AVD is erased only while off.
-Screenshots go to `~/Desktop/<device>-<timestamp>.png`.
+Screenshots go to `~/Desktop/<device>-<YYYYMMDD-HHMMSS>-<ms>.png`.
+
+An emulator the panel starts writes to `$TMPDIR/herdr-devices-<avd>.log`
+(`~/Library/Caches/herdr-devices/` without `$TMPDIR`). If it exits before
+booting, the row stops spinning after about 10 s and the log's last line is
+shown.
 
 ## What it runs
 
 Only local tools, always as argument lists: `xcrun simctl`, `open`, `emulator`,
-`adb`, and `sh` to start the emulator detached and to delete AVD data. It reads
-`~/.android/avd/<name>.ini` and watches `~/Library/Developer/CoreSimulator`.
-It never reaches the network. `adb` and `emulator` are found on `PATH`, then
+`adb`, `pgrep` (is a started emulator still running), `rm` (an AVD's
+`snapshots/` on erase), and `sh` to start the emulator detached with its output
+in the log. It lists the AVD home (`$ANDROID_AVD_HOME`, else `~/.android/avd`)
+for `<name>.ini` files, reads them, and watches it and
+`~/Library/Developer/CoreSimulator`. It never reaches the network. `adb` and `emulator` are found on `PATH`, then
 under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`.
 
 ## Install
@@ -64,8 +73,8 @@ is added, with `devices` in place of `graph`.
 - iOS needs macOS and Xcode. The Android half should work on Linux, untested.
 - iOS physical devices are not listed yet.
 - Clicking a booted AVD does nothing: the emulator window has no app bundle to activate.
-- Tested on macOS with Herdr 0.1.10. Android actions on a running emulator or
-  phone are covered by tests, not run live yet.
+- Tested on macOS with Herdr 0.1.10. AVD erase, and Android screenshots and
+  Open URL, are covered by tests, not run live yet.
 
 ## Development
 
