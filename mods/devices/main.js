@@ -51,7 +51,6 @@ class Panel {
     this.parts = { ios: {}, android: {} };
     this.spinning = 0;
     this.busy = 0;
-    this.hovered = null;
     this.selected = null;
     this.width = 0;
     this.seen = shared("devices.changed");
@@ -175,11 +174,10 @@ class Panel {
 
   row(d, c) {
     const { t, rail, pending } = c, key = deviceKey(d), phase = phaseOf(d, pending);
-    const on = d.state === "on" && !phase, hovered = this.hovered === key && !rail;
+    const on = d.state === "on" && !phase;
     return h_flex().id(`row-${key}`).h(26).flex_none().mx(6).pr(4).gap(8).items_center().when(rail, (el) => el.justify_center()).rounded(6).cursor_pointer().text_size(12.5)
       .when(this.selected === key, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
-      .on_hover((h, cx) => { this.hovered = h ? key : this.hovered === key ? null : this.hovered; cx.notify(); })
       .on_click((_e, cx) => this.click(d, phase, key, cx))
       .on_mouse_down("right", (_e, cx) => { openMenu(d); cx.stop_propagation(); })
       // Reserved: the run half colors this bar by space. Nothing yet.
@@ -192,7 +190,9 @@ class Panel {
         .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.done + "1f").text_size(10.5).font_medium().text_color(t.done).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
         .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
         .child(div().flex_1())
-        .when(hovered, (n) => n.children(hoverActions(d, phase).map((a) =>
+        // Icons sit dim at the right edge and brighten under the pointer: gpui-kit has no
+        // hover groups, and redrawing the panel on every row hover made it lag.
+        .child(h_flex().flex_none().opacity(0.4).hover((s) => s.opacity(1)).children(hoverActions(d, phase).map((a) =>
           div().id(`b-${a.action}-${key}`).size(24).flex_none().flex().items_center().justify_center().rounded(5)
             .hover((s) => s.bg(t.raised))
             .on_click((_e, cx) => { cx.stop_propagation(); this.act(a.action, d, cx); })

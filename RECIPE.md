@@ -38,7 +38,7 @@ in `foreground`. Top to bottom:
     on it (see Apps) as a tag: 16px tall, 5px side padding, radius 4, `done` at
     12% (`done` + `1f`) behind 10.5px medium `done` text, at most 96px wide
     (truncated); during a phase `booting…` or `stopping…` at 11px `dim`, then on
-    hover the icons at the right edge. The clicked row is `selected`; `hover`
+    the icons at the right edge, dim until the pointer is over them. The clicked row is `selected`; `hover`
     under the pointer. Rows carry no tint of their own.
   - **Icons** (Lucide, in `icons/`): by the device's name, `tablet` (iPad,
     Tablet, Fold, Pad), `watch` (Watch, Wear), `tv` (TV, Television), `glasses`
@@ -159,7 +159,7 @@ action button reads `Working…` while it runs.
 - **Click a row**: it becomes `selected`. Off and bootable (a simulator, a
   known AVD): Boot. A booted simulator: `open -a Simulator`. Anything else:
   nothing (an emulator window has no app to activate).
-- **Hover** shows the row's icons; **More** and **right-click** open the menu
+- The row's icons are always shown, dim until hovered; **More** and **right-click** open the menu
   (up, down, enter, esc work).
 - **Actions**:
   - **Boot**: simulator `xcrun simctl boot <udid>` (exit 149, already booted,
@@ -300,7 +300,9 @@ action button reads `Working…` while it runs.
 - A hover icon inside a clickable row must `cx.stop_propagation()`, or the row
   click runs too.
 - `cx` is only good inside its handler: write the clipboard before any `await`.
-- No hover groups in gpui-kit: the row tracks `on_hover` and redraws.
+- No hover groups in gpui-kit, and redrawing the panel on every row hover (`on_hover` +
+  `cx.notify()`) made the whole mod lag: the icon strip is always in the row at opacity 0.4
+  and its own `hover` brings it to 1.
 - `.when(cond, …)` needs a real boolean; create focus handles and input states
   in `init`, never in `render`.
 - Herdr hot-reloads on changes under `~/.config/herdr-app/mods/`. A symlinked
