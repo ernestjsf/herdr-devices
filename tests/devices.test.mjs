@@ -51,10 +51,23 @@ test("adb devices -l", () => {
   assert.deepEqual(D.parseAdbDevices("* daemon not running; starting now at tcp:5037\n* daemon started successfully\nList of devices attached\n\n"), []);
 });
 
-test("simctl launchctl list: user apps, sorted, Apple's dropped", () => {
-  assert.deepEqual(D.parseIosApps(fixture("launchctl-list.txt")), ["com.example.budget", "com.example.budget.widget", "com.example.notes"]);
+test("simctl launchctl list: user apps with pids, sorted, Apple's dropped", () => {
+  assert.deepEqual(D.parseIosApps(fixture("launchctl-list.txt")), [{ id: "com.example.budget", pid: "90340" }, { id: "com.example.budget.widget", pid: "60500" }, { id: "com.example.notes", pid: "61002" }]);
+  assert.deepEqual(D.parseIosApps("1\t0\tUIKitApplication:com.example.a[1][rb-legacy]\n2\t0\tUIKitApplication:com.example.a[2][rb-legacy]\n"), [{ id: "com.example.a", pid: "1" }]);
   assert.deepEqual(D.parseIosApps("-\t0\tcom.apple.SpringBoard.services\n1\t0\tUIKitApplication:com.apple.mobilecal[fd1e][rb-legacy]\n"), []);
   assert.deepEqual(D.parseIosApps(""), []);
+});
+
+test("ps ranks the apps: CPU first, then newest launch, then id", () => {
+  const apps = [{ id: "com.example.budget", pid: "90340" }, { id: "com.example.focus", pid: "11034" }, { id: "com.example.notes", pid: "500" }];
+  // A suspended app at 0.0 for 18 hours, the one on screen at 24.5%.
+  assert.deepEqual(D.rankIosApps(apps.slice(0, 2), "11034  24.5     01:16\n90340   0.0 18:08:37\n"), ["com.example.focus", "com.example.budget"]);
+  // All idle (under 0.5 counts as 0): the newest launch leads; days sort above hours.
+  assert.deepEqual(D.rankIosApps(apps, "11034   0.3     01:16\n90340   0.0 18:08:37\n  500   0.0 2-03:00:00\n"), ["com.example.focus", "com.example.budget", "com.example.notes"]);
+  // Same CPU and age: by id. Apps ps didn't print go last.
+  assert.deepEqual(D.rankIosApps(apps, "500 0.0 05:00\n90340 0.0 05:00\n"), ["com.example.budget", "com.example.notes", "com.example.focus"]);
+  // ps failed: the order given.
+  assert.deepEqual(D.rankIosApps(apps, ""), ["com.example.budget", "com.example.focus", "com.example.notes"]);
 });
 
 test("dumpsys: the app in front, launchers and system apps hidden", () => {

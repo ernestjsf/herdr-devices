@@ -80,6 +80,18 @@ async function listAvds() {
   return (avdList = { avds, apis });
 }
 
+// A simulator's user apps, the one most likely on screen first: ps tells which
+// use CPU (ps exits 1 when a process is gone but still prints the rest). Without
+// it they stay sorted by id.
+async function simApps(d) {
+  const r = await tool("xcrun", ["simctl", "spawn", d.id, "launchctl", "list"]);
+  if (r?.code !== 0) return [];
+  const apps = D.parseIosApps(r.stdout);
+  if (!apps.length) return [];
+  const ps = await exec("ps", ["-o", "pid=,%cpu=,etime=", "-p", apps.map((a) => a.pid).join(",")]).catch(() => null);
+  return D.rankIosApps(apps, ps?.stdout ?? "");
+}
+
 // Puts the cached apps on the booted rows and asks every booted device again in
 // the background (a slow one can't hold up a read; its apps show from the next
 // read). Other rows lose their cache entry. A change nudges the panels to read.
@@ -90,11 +102,8 @@ function withApps(devices) {
     d.apps = apps[key] ?? [];
     if (askingApps.has(key)) continue;
     askingApps.add(key);
-    const [args, parse] = d.kind === "sim"
-      ? [["simctl", "spawn", d.id, "launchctl", "list"], D.parseIosApps]
-      : [["-s", d.serial, "shell", "dumpsys", "activity", "activities"], D.parseAndroidApp];
-    tool(d.kind === "sim" ? "xcrun" : "adb", args)
-      .then((r) => (r?.code === 0 ? parse(r.stdout) : []), () => [])
+    const ask = d.kind === "sim" ? simApps(d) : tool("adb", ["-s", d.serial, "shell", "dumpsys", "activity", "activities"]).then((r) => (r?.code === 0 ? D.parseAndroidApp(r.stdout) : []));
+    ask.catch(() => [])
       .then((ids) => {
         const changed = (apps[key] ?? []).join() !== ids.join();
         apps[key] = ids;

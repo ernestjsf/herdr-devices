@@ -114,7 +114,10 @@ action button reads `Working…` while it runs.
   change nudges the panels to read again). The cache entry goes when the device
   isn't on; a failed call means no suffix. Simulator: `xcrun simctl spawn <udid>
   launchctl list`, each `UIKitApplication:<bundle id>[` line, `com.apple.*`
-  dropped, sorted (it lists every running app, not only the front one). Android:
+  dropped (it lists every running app, not only the front one); then one `ps -o
+  pid=,%cpu=,etime= -p <pids>` orders them by %cpu descending (under 0.5 is 0:
+  the simulator suspends backgrounded apps), then newest launch (etime), then
+  id; apps ps doesn't print go last, and if ps fails the order is by id. Android:
   `adb -s <serial> shell dumpsys activity activities`, the package of
   `topResumedActivity=ActivityRecord{... <package>/...}` (older APIs:
   `mResumedActivity`), hidden when it matches

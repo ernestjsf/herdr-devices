@@ -94,10 +94,36 @@ export function androidDevices(avds, adb, names, apis = {}) {
   return rows;
 }
 
-// `simctl spawn <udid> launchctl list` -> the user apps running, sorted: each
-// app is a `UIKitApplication:<bundle id>[...]` line; Apple's own are dropped.
-export const parseIosApps = (text) =>
-  [...new Set([...text.matchAll(/UIKitApplication:([A-Za-z0-9.-]+)\[/g)].map((m) => m[1]).filter((id) => !id.startsWith("com.apple.")))].sort();
+// `simctl spawn <udid> launchctl list` -> the user apps running as { id, pid },
+// sorted by id: each app is a `<pid> <status> UIKitApplication:<bundle id>[...]`
+// line; Apple's own are dropped.
+export function parseIosApps(text) {
+  const byId = new Map();
+  for (const m of text.matchAll(/^\s*(\d+)\s+\S+\s+UIKitApplication:([A-Za-z0-9.-]+)\[/gm))
+    if (!m[2].startsWith("com.apple.") && !byId.has(m[2])) byId.set(m[2], { id: m[2], pid: m[1] });
+  return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+// ps's etime, `[[D-]HH:]MM:SS`, in seconds.
+const etimeSeconds = (t) => {
+  const [, d = 0, rest] = /^(?:(\d+)-)?(.+)$/.exec(t);
+  return rest.split(":").reduce((n, p) => n * 60 + Number(p), 0) + Number(d) * 86400;
+};
+
+// The apps' ids, most likely the one on screen first. The simulator suspends
+// backgrounded apps, so CPU use tells (`psText`: `ps -o pid=,%cpu=,etime=`
+// for their pids; under 0.5 counts as idle); when all are idle the newest
+// launch leads. Apps ps didn't print go last, in the order given.
+export function rankIosApps(apps, psText) {
+  const stat = new Map();
+  for (const m of psText.matchAll(/^\s*(\d+)\s+([\d.]+)\s+(\S+)\s*$/gm)) stat.set(m[1], { cpu: Number(m[2]) < 0.5 ? 0 : Number(m[2]), age: etimeSeconds(m[3]) });
+  const at = (a) => stat.get(a.pid);
+  return [...apps].sort((a, b) => {
+    const x = at(a), y = at(b);
+    if (!x || !y) return !x - !y;
+    return y.cpu - x.cpu || x.age - y.age || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  }).map((a) => a.id);
+}
 
 const ANDROID_SYSTEM = /^(com\.android\.|com\.google\.android\.(apps\.nexuslauncher|gms|googlequicksearchbox)|android$)|launcher$/i;
 

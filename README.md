@@ -15,7 +15,7 @@ the everyday actions one click away.
   terminal. Android devices are polled every 5 s; the AVD list updates when an
   AVD is added or removed.
 - Devices booted from a terminal count as recent too.
-- A booted device shows the app running on it after its version, as the last part of its id (`com.example.budget` shows `budget`); hover for the full id. Nothing shows for an idle device.
+- A booted device shows the app running on it after its version, as the last part of its id (`com.example.budget` shows `budget`); hover for the full id. Nothing shows for an idle device. With several iOS apps running it is the one using CPU most recently, since the simulator suspends backgrounded apps.
 - The last list paints instantly on open. Under 160 px the panel becomes a rail.
 
 ## Actions
@@ -34,7 +34,7 @@ Hover for Boot or Shut down, Screenshot and More. Right-click for the full menu.
 | Stop *app* | `simctl terminate`                 | `adb shell am force-stop`                            |
 | Erase…     | `simctl erase` (factory reset)     | deletes the AVD's `snapshots/`, boots it once with `emulator -wipe-data -no-snapshot -no-window`, stops it when booted |
 
-Copy app id and Stop need a known app and live in the menu only; with several iOS apps running the row shows the first (sorted) and the menu offers Stop for each.
+Copy app id and Stop need a known app and live in the menu only; with several iOS apps running the row shows that one and the menu offers Stop for each, in the same order.
 Erase lives in the menu only and asks first. An AVD is erased only while off.
 Screenshots go to `~/Desktop/<device>-<YYYYMMDD-HHMMSS>-<ms>.png`.
 
@@ -45,7 +45,7 @@ shown.
 
 ## What it runs
 
-Only local tools, always as argument lists: `xcrun simctl` (also `simctl spawn <udid> launchctl list` to see which apps run), `open`, `emulator`,
+Only local tools, always as argument lists: `xcrun simctl` (also `simctl spawn <udid> launchctl list` to see which apps run), `ps` (which simulator app is using CPU), `open`, `emulator`,
 `adb` (also `shell dumpsys activity activities` to see the app in front), `pgrep` (is a started emulator still running), `rm` (an AVD's
 `snapshots/` on erase), and `sh` to start the emulator detached with its output
 in the log. It lists the AVD home (`$ANDROID_AVD_HOME`, else `~/.android/avd`)
