@@ -17,8 +17,9 @@ const simState = (s) => (s === "Booted" ? "on" : s === "Shutdown" ? "off" : s.to
 export function parseSimctl(json) {
   const sections = [];
   for (const [runtime, list] of Object.entries(JSON.parse(json).devices ?? {})) {
-    const devices = list.filter((d) => d.isAvailable).map((d) => ({ kind: "sim", id: d.udid, name: d.name, state: simState(d.state) }));
-    if (devices.length) sections.push({ title: runtimeLabel(runtime), devices });
+    const title = runtimeLabel(runtime), detail = title.split(" ").pop();
+    const devices = list.filter((d) => d.isAvailable).map((d) => ({ kind: "sim", id: d.udid, name: d.name, state: simState(d.state), detail, lastUsed: Date.parse(d.lastBootedAt ?? "") || 0 }));
+    if (devices.length) sections.push({ title, devices });
   }
   const rank = (title) => {
     const [os, version] = title.split(" ");
@@ -57,21 +58,25 @@ export const parseEmuAvdName = (text) => text.split(/\r?\n/)[0].trim() || null;
 
 const adbState = (s) => (s === "device" ? "on" : s);
 
+// How a phone is attached: adb-over-Wi-Fi serials carry a host:port or mDNS name.
+export const phoneLink = (serial) => (/:\d+$|\._adb-tls-connect\./.test(serial) ? "Wi-Fi" : "USB");
+
 // AVDs (running or not) and physical devices in one list. `names` maps a
-// running emulator's serial to its AVD name.
-export function androidDevices(avds, adb, names) {
+// running emulator's serial to its AVD name; `apis` an AVD's name to "API 36".
+export function androidDevices(avds, adb, names, apis = {}) {
   const running = new Map();
   for (const d of adb) if (isEmulator(d.serial) && names[d.serial]) running.set(names[d.serial], d);
   const rows = avds.map((name) => {
     const r = running.get(name);
-    return r ? { kind: "avd", id: r.serial, serial: r.serial, avd: name, name, state: adbState(r.state) } : { kind: "avd", id: name, avd: name, name, state: "off" };
+    const detail = apis[name] ?? "emulator";
+    return r ? { kind: "avd", id: r.serial, serial: r.serial, avd: name, name, state: adbState(r.state), detail } : { kind: "avd", id: name, avd: name, name, state: "off", detail };
   });
   for (const d of adb) {
     const name = names[d.serial];
     if (isEmulator(d.serial)) {
       // An emulator of an AVD the list doesn't know (another AVD home), or still starting.
-      if (!name || !avds.includes(name)) rows.push({ kind: "avd", id: d.serial, serial: d.serial, avd: null, name: name ?? d.serial, state: adbState(d.state) });
-    } else rows.push({ kind: "phone", id: d.serial, serial: d.serial, name: d.model ?? d.serial, state: adbState(d.state) });
+      if (!name || !avds.includes(name)) rows.push({ kind: "avd", id: d.serial, serial: d.serial, avd: null, name: name ?? d.serial, state: adbState(d.state), detail: "emulator" });
+    } else rows.push({ kind: "phone", id: d.serial, serial: d.serial, name: d.model ?? d.serial, state: adbState(d.state), detail: phoneLink(d.serial) });
   }
   return rows;
 }
@@ -86,6 +91,12 @@ export function toolCandidates(name, { androidHome, sdkRoot, home }) {
 
 // `<avd home>/<name>.ini` names the AVD's folder on its `path=` line.
 export const parseAvdIni = (text) => /^path=(.+)$/m.exec(text ?? "")?.[1].trim() || null;
+
+// Its `target=android-36` line -> "API 36".
+export const avdApi = (text) => {
+  const level = /^target=android-(\w+)/m.exec(text ?? "")?.[1];
+  return level ? `API ${level}` : null;
+};
 
 // The line of a failed command worth showing. simctl opens every error with a
 // generic "An error was encountered..." line; the reason is on the next one.
@@ -154,4 +165,73 @@ export function stepsFor(action, d, x) {
     }
   }
   throw new Error(`Unknown action: ${action}`);
+}
+
+// One id per device across reads: an AVD keeps its name while its serial
+// comes and goes.
+export const deviceKey = (d) => (d.kind === "avd" ? `avd:${d.avd ?? d.id}` : `${d.kind}:${d.id}`);
+
+// Most recently used first: simctl's lastBootedAt, or the latest action this
+// mod ran on it (`used`: key -> ms). Ties keep their order.
+export function sortRecent(devices, used = {}) {
+  const at = (d) => Math.max(d.lastUsed ?? 0, used[deviceKey(d)] ?? 0);
+  return devices.map((d, i) => [d, i]).sort(([a, i], [b, j]) => at(b) - at(a) || i - j).map(([d]) => d);
+}
+
+// A section's rows by default: the `keep` most recent plus every one that
+// isn't off (booted, starting, offline) or has an action under way.
+export function foldRows(sorted, { all = false, pending = {}, keep = 3 } = {}) {
+  if (all) return { shown: sorted, hidden: 0 };
+  const shown = sorted.filter((d, i) => i < keep || d.state !== "off" || pending[deviceKey(d)]);
+  return { shown, hidden: sorted.length - shown.length };
+}
+
+const PENDING_MS = 180000;
+
+// Boot and shut down are under way from the press until the device gets
+// there (an AVD: until it reports sys.boot_completed, `completed` holds its
+// key), or for at most three minutes. Returns the entries still under way.
+export function settlePending(pending, devices, now, completed = new Set()) {
+  const byKey = new Map(devices.map((d) => [deviceKey(d), d]));
+  const next = {};
+  for (const [key, p] of Object.entries(pending ?? {})) {
+    if (now - p.at > PENDING_MS) continue;
+    const d = byKey.get(key);
+    if (p.phase === "booting" && d?.state === "on" && (d.kind !== "avd" || completed.has(key))) continue;
+    if (p.phase === "stopping" && (!d || d.state === "off")) continue;
+    next[key] = p;
+  }
+  return next;
+}
+
+// "booting" | "stopping" | null: a press under way, else simctl's own phases.
+export const phaseOf = (d, pending = {}) =>
+  pending[deviceKey(d)]?.phase ?? (d.state === "booting" ? "booting" : d.state === "shutting down" ? "stopping" : null);
+
+// The status glyph: "spin" (a phase), "on", "off", or "warn" (offline, unauthorized, ...).
+export const glyphOf = (d, phase) => (phase ? "spin" : d.state === "on" || d.state === "off" ? d.state : "warn");
+
+const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const ago = (ms) => (ms < 60000 ? `${Math.max(0, Math.floor(ms / 10000) * 10)}s ago` : ms < 3600000 ? `${Math.floor(ms / 60000)}m ago` : `${Math.floor(ms / 3600000)}h ago`);
+
+// "5 simulators · 1 emulator · 1 device · refreshed 10s ago"
+export function footerText(sims, android, refreshedAt, now) {
+  const parts = [count(sims.length, "simulator"), count(android.filter((d) => d.kind === "avd").length, "emulator"), count(android.filter((d) => d.kind === "phone").length, "device")];
+  if (refreshedAt) parts.push(`refreshed ${ago(now - refreshedAt)}`);
+  return parts.join(" · ");
+}
+
+// A row's hover icons, at most three: boot or shut down, screenshot, more
+// (the full menu, where Erase lives).
+export function hoverActions(d, phase) {
+  const list = actionsFor(d).filter((a) => (a.action === "boot" || a.action === "shutdown" ? !phase : a.action === "screenshot"));
+  return [...list, { action: "more", label: "More", icon: "more" }];
+}
+
+// What clicking a row does: boot it when off, bring a booted simulator's
+// window forward ("focus"), else nothing.
+export function primaryAction(d, phase) {
+  if (phase) return null;
+  if (d.state === "off" && (d.kind === "sim" || d.avd)) return "boot";
+  return d.state === "on" && d.kind === "sim" ? "focus" : null;
 }
