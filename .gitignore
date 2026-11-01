@@ -3,3 +3,4 @@ node_modules/
 # Written by Herdr into every mod it loads
 gpui-kit.d.ts
 jsconfig.json
+.claude/
