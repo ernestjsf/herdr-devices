@@ -5,9 +5,9 @@
 // reloads on the shared "devices.changed".
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder } from "herdr";
-import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, footerText, avdListChanged } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroCwd, maestroStart, runMaestro, mark } from "./actions.js";
+import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
+import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, footerText, avdListChanged, driversFrom, deviceDrivers, driverTag } from "./devices.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroCwd, maestroStart, runMaestro, mark, readPs } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -62,6 +62,8 @@ class Panel {
     this.busy = 0;
     this.selected = null;
     this.width = 0;
+    this.drivers = []; // Maestro MCP's device servers, from the last iOS read
+    this.cpu = {}; // their CPU seconds then, by pid
     this.seen = shared("devices.changed");
     this.reload(cx, "ios", !cache);
     this.reload(cx, "android", !cache);
@@ -100,6 +102,8 @@ class Panel {
       try {
         const prev = this[which] && this.rows(which);
         do { s.again = false; this[which] = await (which === "ios" ? loadIos() : loadAndroid()); } while (s.again);
+        // MCP drives simulators and iPhones only: one ps per iOS read.
+        if (which === "ios") ({ drivers: this.drivers, cpu: this.cpu } = driversFrom(await readPs(), terminals(), this.cpu));
         this.refreshedAt = Date.now();
         // Read failed or partial: keep the recents it can't vouch for.
         const used = shared("devices.used") ?? {}, complete = which === "ios" ? !this.ios.error : !this.android.notes.length;
@@ -183,7 +187,7 @@ class Panel {
 
   row(d, c) {
     const { t, rail, pending } = c, key = deviceKey(d), phase = phaseOf(d, pending);
-    const on = d.state === "on" && !phase;
+    const on = d.state === "on" && !phase, drivers = deviceDrivers(d, this.drivers, c.terminals, c.agents);
     return h_flex().id(`row-${key}`).h(26).flex_none().mx(6).pr(4).gap(8).items_center().when(rail, (el) => el.justify_center()).rounded(6).cursor_pointer().text_size(12.5)
       .when(this.selected === key, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
@@ -197,6 +201,7 @@ class Panel {
         // A simulator's version is its section's title already.
         .when(d.kind !== "sim" && Boolean(d.detail), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail)))
         .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.done + "1f").text_size(10.5).font_medium().text_color(t.done).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
+        .when(drivers.length > 0, (n) => n.child(this.driver(drivers, key, c)))
         .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
         .child(div().flex_1())
         // Icons sit dim at the right edge and brighten under the pointer: gpui-kit has no
@@ -206,6 +211,20 @@ class Panel {
             .hover((s) => s.bg(t.raised))
             .on_click((_e, cx) => { cx.stop_propagation(); this.act(a.action, d, cx); })
             .child(svg(icon(a.icon)).size(13).text_color(t.muted))))));
+  }
+
+  // Who drives the device, shaped like the app tag: `working` while driving,
+  // `blocked` when its agent is, else muted (holds it, idle). It brightens under
+  // the pointer, unlike the app tag: a click focuses the first driver's terminal.
+  // The tooltip lists every driver.
+  driver(drivers, key, c) {
+    const { t } = c, tags = drivers.map((x) => driverTag(x, c.agents.find((a) => a.address === x.address), c.terminals.find((y) => y.address === x.address)));
+    const { label, tone, focus } = tags[0], idle = tone === "idle";
+    return div().id(`driver-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(idle ? t.raised : t[tone] + "1f").text_size(10.5).font_medium().text_color(idle ? t.muted : t[tone])
+      .hover((s) => s.bg(idle ? t.hover : t[tone] + "40").text_color(idle ? t.foreground : t[tone]))
+      .tooltip(tags.map((g) => g.tip).join("\n"))
+      .on_click((_e, cx) => { cx.stop_propagation(); run(focus, { terminal: drivers[0].address }); })
+      .child(label);
   }
 
   // A centered dim line with one accent link.
@@ -246,7 +265,7 @@ class Panel {
     const asked = shared("devices.request");
     if (asked) { setShared("devices.request", null); if (Date.now() - asked.at < 10000) this.act(asked.action, asked.device, cx); }
     const t = theme(), rail = this.width > 0 && this.width < 160;
-    const c = { t, rail, pending: shared("devices.pending") ?? {}, used: shared("devices.used") ?? {} };
+    const c = { t, rail, pending: shared("devices.pending") ?? {}, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents() };
     const body = [];
     if (!this.ios && !this.android) body.push(this.line("loading", "Loading devices…", null, t));
     if (this.ios) {

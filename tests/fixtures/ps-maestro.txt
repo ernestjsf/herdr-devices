@@ -1,0 +1,15 @@
+    1     0 197:53.15 /sbin/launchd
+  501     1   0:04.12 /Applications/Herdr.app/Contents/MacOS/herdr-core hold
+  610   501   0:00.31 /bin/zsh -l
+  640   610  48:56.52 claude
+  655   640   0:00.01 /bin/sh /opt/homebrew/bin/maestro mcp
+  660   655   1:08.04 /usr/bin/java --enable-native-access=ALL-UNNAMED -classpath /opt/homebrew/Cellar/maestro/2.12.0/libexec/lib/* maestro.cli.AppKt mcp
+  671   660   0:38.31 /Users/me/.maestro/deps/simulator-server ios --id 0D1C2B3A-0000-4000-8000-00000000000A
+  720   501   0:00.28 /bin/zsh -l
+  730   720  12:01.77 claude --resume 00000000-0000-4000-8000-000000000001
+  745   730   0:19.30 /usr/bin/java --enable-native-access=ALL-UNNAMED -classpath /opt/homebrew/Cellar/maestro/2.7.0/libexec/lib/* maestro.cli.AppKt mcp
+  752   745   0:02.50 /Users/me/.maestro/deps/simulator-server ios --id 0D1C2B3A-0000-4000-8000-00000000000A
+  800     1   3:10.02 /Applications/Claude.app/Contents/MacOS/Claude
+  810   800   0:05.56 /usr/bin/java --enable-native-access=ALL-UNNAMED -classpath /opt/homebrew/Cellar/maestro/2.12.0/libexec/lib/* maestro.cli.AppKt mcp
+  815   810   0:01.20 /Users/me/.maestro/deps/simulator-server ios --id 0D1C2B3A-0000-4000-8000-00000000000B
+  900   501   0:00.05 grep simulator-server ios --id

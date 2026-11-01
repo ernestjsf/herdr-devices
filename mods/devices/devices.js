@@ -306,8 +306,76 @@ export function parseVars(text) {
 // A device's Maestro pane, to end before the next run opens one. terminal.open's
 // name doesn't reach the core's terminal (name stays null), so its argv also tells.
 export const maestroPaneName = (d) => `maestro · ${d.name}`;
-export const isMaestroPane = (t, d) => t?.state !== "finished"
-  && (t?.name === maestroPaneName(d) || (t?.argv?.[0] === "sh" && t.argv[1] === "-c" && String(t.argv[2]).includes("maestro --device") && t.argv[4] === d.id));
+const isMaestroArgv = (argv, d) => argv?.[0] === "sh" && argv[1] === "-c" && String(argv[2]).includes("maestro --device") && argv[4] === d.id;
+export const isMaestroPane = (t, d) => t?.state !== "finished" && (t?.name === maestroPaneName(d) || isMaestroArgv(t?.argv, d));
+// Its run is going while the foreground is still that command: after it the pane execs the shell.
+export const maestroRunning = (t, d) => isMaestroPane(t, d) && isMaestroArgv(t.foreground?.argv, d);
+
+// `ps -axo pid=,ppid=,time=,command=` -> [{ pid, ppid, cpu, command }], cpu in
+// seconds (time is [dd-][hh:]mm:ss.ss; macOS lets minutes pass 59).
+export function parsePs(text) {
+  const rows = [];
+  for (const line of text.split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(?:(\d+)-)?([\d:.]+)\s+(.*)$/.exec(line);
+    if (m) rows.push({ pid: Number(m[1]), ppid: Number(m[2]), cpu: Number(m[3] ?? 0) * 86400 + m[4].split(":").reduce((n, part) => n * 60 + Number(part), 0), command: m[5] });
+  }
+  return rows;
+}
+
+const SIM_SERVER = /(?:^|\/)simulator-server ios --id (\S+)/;
+
+// Maestro MCP's per-device servers (`simulator-server ios --id <udid>`), each
+// with the terminal it runs under: its parents are walked (50 at most, never
+// past pid 1) to a terminal's pid or foreground pid. Active: its CPU time grew
+// since `prevCpu` (pid -> seconds; a first sighting isn't). Returns { drivers:
+// [{ udid, address, pid, cpu, active }], cpu: the next prevCpu }.
+export function driversFrom(rows, terminals, prevCpu = {}) {
+  const byPid = new Map(rows.map((r) => [r.pid, r])), owner = new Map();
+  for (const t of terminals) if (t.state !== "finished") for (const pid of [t.pid, t.foreground?.pid]) if (pid) owner.set(pid, t.address);
+  const drivers = [], cpu = {};
+  for (const r of rows) {
+    const udid = SIM_SERVER.exec(r.command)?.[1];
+    if (!udid) continue;
+    cpu[r.pid] = r.cpu;
+    let p = r.ppid;
+    for (let hops = 0; p > 1 && hops < 50 && !owner.has(p); hops++) p = byPid.get(p)?.ppid ?? 0;
+    if (owner.has(p)) drivers.push({ udid, address: owner.get(p), pid: r.pid, cpu: r.cpu, active: prevCpu[r.pid] !== undefined && r.cpu > prevCpu[r.pid] });
+  }
+  return { drivers, cpu };
+}
+
+// Who drives a device, the one to show first: one per terminal, this panel's
+// Maestro run while it's going ("pane", active), MCP servers from driversFrom
+// ("mcp"); active before attached, then the agent whose status changed last
+// (agents()' seq). An idle agent's server still ticks CPU now and then, so an
+// agent's server is active only while it's working. [{ address, via, active }]
+export function deviceDrivers(d, drivers, terminals, agents) {
+  const agent = (address) => agents.find((a) => a.address === address);
+  const list = terminals.filter((t) => maestroRunning(t, d)).map((t) => ({ address: t.address, via: "pane", active: true }));
+  for (const x of drivers) {
+    if (x.udid !== d.id) continue;
+    const active = x.active && (agent(x.address)?.status ?? "working") === "working";
+    const same = list.find((y) => y.address === x.address);
+    if (same) same.active ||= active;
+    else list.push({ address: x.address, via: "mcp", active });
+  }
+  const seq = (address) => agent(address)?.seq ?? -1;
+  return list.sort((a, b) => Number(b.active) - Number(a.active) || seq(b.address) - seq(a.address));
+}
+
+// A driver's tag: { label, tone: "working" | "blocked" | "idle", tip (starts
+// with what a click does), focus (the click's command) }. `agent`: its agents() entry, if any; `t`: its terminal.
+export function driverTag(x, agent, t) {
+  const where = agent ? `${agent.space_name} / ${agent.tab_name}` : t?.labels?.where;
+  const status = agent?.status ?? t?.status ?? null;
+  // The program's table key ("claude", "codex"); where it runs is the tooltip's.
+  const label = x.via === "pane" ? "maestro" : (agent ?? t)?.program?.key ?? x.address;
+  const tone = x.active ? "working" : status === "blocked" ? "blocked" : "idle";
+  const program = x.via === "pane" ? "maestro" : (agent ?? t)?.program?.name ?? x.address;
+  const via = x.via === "pane" ? "this panel's Run Maestro pane" : "via Maestro MCP";
+  const tip = [`Click to focus ${program}`, where, status, x.active ? "driving now" : "attached, idle", via].filter(Boolean).join(" · ");
+  return { label, tone, tip, focus: agent ? "agent.focus" : "pane.focus" };
+}
 
 // The flows path to offer: the project's .maestro folder when it has one, else its folder.
 export const flowsDefault = (cwd, hasDotMaestro) => (!cwd ? "" : hasDotMaestro ? `${cwd}/.maestro` : cwd);

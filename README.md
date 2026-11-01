@@ -13,6 +13,7 @@ right-click menu and it runs on that device in a pane below.
 - Running devices and the three most recent per section. **Show all** for the rest.
 - Each row shows the device's icon (phone, tablet, watch, TV, Vision Pro) and its state: a dot when booted, dim when off, a spinner while booting or stopping, a triangle when offline.
 - A booted device shows the app it is running as a tag (`com.example.budget` shows `budget`). Hover for the full id. With several iOS apps running, it is the one in front.
+- A second tag names who is driving the device: the agent (`claude`, `codex`) whose Maestro MCP session holds a simulator or connected iPhone, or `maestro` while the panel's own Run Maestro flow runs. It is the `working` color while driving, `blocked` when the agent waits on you, and muted when it holds the device but is idle. Hover for every driver and its tab; the tag brightens, and a click jumps to that agent. Android devices driven over Maestro MCP aren't tagged yet: only the panel's own run tags them.
 - Live: a simulator boot or shutdown from any terminal shows within a second. Android and connected iOS devices are polled every 5 s.
 - The last list paints instantly on open. Under 160 px the panel becomes a rail.
 
@@ -57,7 +58,7 @@ Only local tools, always as argument lists. It never reaches the network.
 
 - `xcrun simctl` to list, boot, shut down, screenshot, open URLs and erase simulators, and to see which apps run (`launchctl list`, `log show`).
 - `xcrun devicectl` to list connected iOS devices and open a URL in Safari on one.
-- `ps` to see which simulator app is using CPU. `open` to bring Simulator forward.
+- `ps` to see which simulator app is using CPU, and which terminal's Maestro MCP drives a device (`ps -axo pid=,ppid=,time=,command=`, once per iOS read). `open` to bring Simulator forward.
 - `emulator` and `adb` for Android, including `dumpsys` to see the app in front. Both are found on `PATH`, then under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`.
 - `pgrep` to check a started emulator is still running, `sh` to start it detached, `rm` to delete an AVD's `snapshots/` on erase.
 - `find` to list the flows in a `.maestro` folder. `maestro` from your `PATH`, in a terminal pane via Herdr. Maestro's own network use is not the mod's.

@@ -144,6 +144,12 @@ export async function loadIos() {
   } catch { return { sections: [], error: "simctl printed something unreadable" }; }
 }
 
+// Every process with its parent and CPU time, to tell which terminal drives a device; [] when ps fails.
+export async function readPs() {
+  const r = await exec("ps", ["-axo", "pid=,ppid=,time=,command="]).catch(() => null);
+  return r?.code === 0 ? D.parsePs(r.stdout) : [];
+}
+
 // { devices, notes }
 export async function loadAndroid() {
   const [{ avds, apis }, adbList, emulator] = await Promise.all([

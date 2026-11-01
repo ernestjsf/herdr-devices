@@ -3,7 +3,8 @@
 // renamed); the *-mixed, adb-emu-avd-name, launchctl-list and dumpsys-* files are trimmed or hand-written in the tools' exact formats (ids sanitized to com.example.*), since this machine
 // had no running emulator or phone. devicectl-list.json is that tool's JSON, trimmed (capabilities and
 // other unread fields dropped) with the names, ids and hostnames replaced and the connection states edited by hand: this machine's two paired
-// devices were both away, so one wired and one Wi-Fi device are made up. Run: node --test tests/
+// devices were both away, so one wired and one Wi-Fi device are made up. ps-maestro.txt is hand-written in
+// `ps -axo pid=,ppid=,time=,command=`'s exact format (pids, UDIDs and paths sanitized). Run: node --test tests/
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -428,4 +429,75 @@ test("row icon by name", () => {
   assert.deepEqual(icons("iPad Pro 13-inch (M5)", "Pixel_Tablet_API_35", "Pixel Fold"), ["tablet", "tablet", "tablet"]);
   assert.deepEqual(icons("Apple Watch Series 11", "Wear_OS_Large_Round", "Apple Watch"), ["watch", "watch", "watch"]);
   assert.deepEqual(icons("Apple TV 4K (3rd generation)", "Television_1080p_API_34", "Apple Vision Pro"), ["tv", "tv", "glasses"]);
+});
+
+const UDID_A = "0D1C2B3A-0000-4000-8000-00000000000A", UDID_B = "0D1C2B3A-0000-4000-8000-00000000000B";
+const psRows = () => D.parsePs(fixture("ps-maestro.txt"));
+const terms = [{ address: "t1", state: "live", pid: 610, foreground: { pid: 640 } }, { address: "t2", state: "live", pid: 720, foreground: { pid: 730 } }];
+
+test("ps: pid, parent, CPU seconds and the whole command", () => {
+  const rows = psRows();
+  assert.equal(rows.length, 15);
+  assert.deepEqual(rows[0], { pid: 1, ppid: 0, cpu: 197 * 60 + 53.15, command: "/sbin/launchd" });
+  assert.equal(rows.find((r) => r.pid === 660).command, "/usr/bin/java --enable-native-access=ALL-UNNAMED -classpath /opt/homebrew/Cellar/maestro/2.12.0/libexec/lib/* maestro.cli.AppKt mcp");
+  assert.equal(D.parsePs("  5 1 1-02:00:01.50 x")[0].cpu, 86400 + 7201.5);
+  assert.deepEqual(D.parsePs("\nnot ps\n"), []);
+});
+
+test("drivers: each simulator-server's UDID and the terminal it runs under", () => {
+  const { drivers, cpu } = D.driversFrom(psRows(), terms, {});
+  // 671 -> java 660 -> sh 655 -> claude 640 -> zsh 610 (t1's pid): four hops, by its pid alone too.
+  assert.deepEqual(drivers, [
+    { udid: UDID_A, address: "t1", pid: 671, cpu: 38.31, active: false },
+    { udid: UDID_A, address: "t2", pid: 752, cpu: 2.5, active: false },
+  ]);
+  assert.deepEqual(D.driversFrom(psRows(), [{ address: "t1", pid: 610 }], {}).drivers.map((x) => x.address), ["t1"]);
+  // 815's parents end at launchd (pid 1) without a terminal: no driver, but its CPU is kept.
+  assert.ok(!drivers.some((x) => x.udid === UDID_B));
+  assert.deepEqual(cpu, { 671: 38.31, 752: 2.5, 815: 1.2 });
+  assert.deepEqual(D.driversFrom(psRows(), [{ address: "t9", pid: 610, state: "finished" }], {}).drivers, []);
+});
+
+test("drivers: active when its CPU time grew since the last read", () => {
+  const { drivers } = D.driversFrom(psRows(), terms, { 671: 38.31, 752: 1.9, 999: 5 });
+  assert.deepEqual(drivers.map((x) => [x.pid, x.active]), [[671, false], [752, true]]);
+});
+
+test("Maestro pane: driving while its run is the foreground, not once it's the shell", () => {
+  const d = { kind: "sim", id: UDID_A, name: "iPhone 17 Pro" }, argv = D.maestroArgv(d, "/p/.maestro");
+  const pane = (fg) => ({ address: "t5", state: "live", argv, foreground: { argv: fg, pid: 1 } });
+  assert.ok(D.maestroRunning(pane(argv), d));
+  assert.ok(!D.maestroRunning(pane(["/bin/zsh", "-l"]), d));
+  assert.ok(!D.maestroRunning(pane(argv), { ...d, id: UDID_B }));
+  assert.deepEqual(D.deviceDrivers(d, [], [pane(argv)], []), [{ address: "t5", via: "pane", active: true }]);
+  assert.deepEqual(D.deviceDrivers(d, [], [pane(["/bin/zsh", "-l"])], []), []);
+  // Its own run's simulator-server is the same terminal: one driver, the pane.
+  assert.deepEqual(D.deviceDrivers(d, [{ udid: UDID_A, address: "t5", active: false }], [pane(argv)], []), [{ address: "t5", via: "pane", active: true }]);
+});
+
+test("drivers of a device: active first, then the agent that changed last", () => {
+  const d = { kind: "sim", id: UDID_A }, agents = [{ address: "t1", seq: 4 }, { address: "t2", seq: 9 }];
+  const both = (a1, a2) => [{ udid: UDID_A, address: "t1", active: a1 }, { udid: UDID_A, address: "t2", active: a2 }, { udid: UDID_B, address: "t3", active: true }];
+  assert.deepEqual(D.deviceDrivers(d, both(true, false), [], agents).map((x) => x.address), ["t1", "t2"]);
+  assert.deepEqual(D.deviceDrivers(d, both(false, false), [], agents).map((x) => x.address), ["t2", "t1"]);
+  assert.deepEqual(D.deviceDrivers({ kind: "sim", id: "OTHER" }, both(true, true), [], agents), []);
+});
+
+test("drivers of a device: an agent's server is active only while the agent is working", () => {
+  const d = { kind: "sim", id: UDID_A }, mcp = [{ udid: UDID_A, address: "t1", active: true }, { udid: UDID_A, address: "t2", active: true }];
+  const active = (status) => D.deviceDrivers(d, mcp, [], [{ address: "t1", seq: 1, status }]).map((x) => [x.address, x.active]);
+  // t2 isn't an agent: its CPU alone tells.
+  assert.deepEqual(active("working"), [["t1", true], ["t2", true]]);
+  assert.deepEqual(active("idle"), [["t2", true], ["t1", false]]);
+  assert.deepEqual(active("blocked"), [["t2", true], ["t1", false]]);
+});
+
+test("driver tag: the program's key, where it runs in the tip, maestro for the pane", () => {
+  const mcp = { via: "mcp", address: "t1", active: false };
+  const tag = D.driverTag(mcp, { address: "t1", tab_name: "3", space_name: "budget", status: "idle", program: { key: "claude", name: "Claude Code" } });
+  assert.equal(tag.label, "claude");
+  assert.equal(tag.tip, "Click to focus Claude Code · budget / 3 · idle · attached, idle · via Maestro MCP");
+  assert.equal(D.driverTag(mcp, undefined, { address: "t1", program: { key: "codex", name: "Codex" } }).label, "codex");
+  assert.equal(D.driverTag(mcp, undefined, { address: "t1" }).label, "t1");
+  assert.equal(D.driverTag({ via: "pane", address: "t2", active: true }, undefined, undefined).label, "maestro");
 });

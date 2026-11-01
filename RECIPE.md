@@ -5,7 +5,8 @@ Herdr side panel, most recently used first. Click a device to boot it; hover for
 Shut down and Screenshot. The menu adds Open URL, Run Maestro flow, Copy id,
 Stop app and Erase. Each row shows the device's state and the app it is running.
 Run Maestro flow opens a picker of the project's flows, remembers the last one
-and its variables, and runs it in a pane below.
+and its variables, and runs it in a pane below. A second tag names the agent
+driving the device; clicking it jumps to that agent.
 
 ![Devices](preview.png)
 
@@ -90,7 +91,32 @@ action button reads `Working…` while it runs.
 
 ## How it behaves
 
-- Agent statuses aren't shown: this panel is about devices.
+- Agent statuses aren't shown, except as a device's driver (below): this panel
+  is about devices.
+- **Drivers**: which terminal drives a device. With each simulator read, one
+  `ps -axo pid=,ppid=,time=,command=` (`time` is CPU time, `[dd-][hh:]mm:ss.ss`,
+  minutes past 59 on macOS): every `simulator-server ios --id <udid>` (Maestro
+  MCP starts one per simulator or iPhone it drives) has its parents walked, 50
+  at most and never past pid 1, until one is a live terminal's `pid` or
+  `foreground.pid` in `terminals()`. It is active when its CPU time grew since
+  the previous read (the panel keeps each server's last CPU time; a first
+  sighting isn't) and its terminal's agent, if it is one, is `working`: an idle
+  agent's server still ticks 0.01 to 0.5 s now and then. Otherwise attached.
+  This panel's Run Maestro pane (`isMaestroPane`) drives its device, active,
+  while its `foreground.argv` is still the `sh -c … maestro --device` command;
+  once it execs the shell, it drives nothing. One driver per terminal (the
+  pane wins over its own run's server); the first is the active one, then the
+  agent whose status changed last (`agents()`' `seq`). The row's tag shows the
+  first: its terminal's `program.key` (`claude`, `codex`), else its address;
+  the pane reads `maestro`. It brightens under the pointer (`hover` on `raised`,
+  `foreground` text; or the tone at `40`), the row's only tag that does. Active `working` (`working` + `1f` behind), attached with its
+  agent `blocked` likewise in `blocked`, else `muted` on `raised`. The tooltip
+  has a line per driver: `Click to focus <program name> · <space> / <tab> · <status> · driving now`
+  (or `attached, idle`) `· via Maestro MCP` (or `· this panel's Run Maestro
+  pane`). A click runs `agent.focus {terminal}` for an agent, else `pane.focus
+  {terminal}`, without the row's click; right-click opens the row's menu. Not in
+  the rail. Android via Maestro MCP is not tagged: no per-device process was
+  found to read (no emulator was running to look).
 - **Start**: the last list (kept in `localStorage`, with when it was read)
   paints at once; both platforms are read behind it.
 - **Simulators**: `xcrun simctl list devices -j`, read again whenever
@@ -266,11 +292,13 @@ action button reads `Working…` while it runs.
   `toolCandidates`, `stillMissing`, `execFailure`, `rejectionLine`,
   `errorLine`, `emulatorLogPath`, `avdProcessPattern`, `lastLine`,
   `screenshotPath`, `validUrl`, `maestroArgv`, `parseVars`, `maestroPaneName`, `isMaestroPane`, `flowsDefault`, `findFlowsArgv`,
-  `flowRows` (find's paths -> `{ label, sub, path }`).
+  `flowRows` (find's paths -> `{ label, sub, path }`), `maestroRunning`, `parsePs`,
+  `driversFrom` (ps rows, terminals, last CPU times -> `{ drivers, cpu }`),
+  `deviceDrivers`, `driverTag`.
 - `actions.js`: `loadIos()`, `loadAndroid()`, `bootCompleted(serial)`,
   `emulatorRunning(avd)`, `emulatorLastLine(avd)`, `endWipe(device)`,
   `avdHome()`, `forgetAvds()`, `focus(device)`, `maestroCwd()`, `maestroStart()`,
-  `runMaestro(device, path, cwd, vars)` and `perform(action, device, { url })`
+  `runMaestro(device, path, cwd, vars)`, `readPs()` and `perform(action, device, { url })`
   through `exec`. `adb` and `emulator` are tried from the path that
   worked last, then PATH, `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` (read once with
   `$ANDROID_AVD_HOME`, `$TMPDIR` and `uname -s` by `sh -c 'printf …'`) and
@@ -283,12 +311,12 @@ action button reads `Working…` while it runs.
   (the last list) and `folds`.
 - `herdr` functions: `exec`, `home`, `readTextFile`, `watchFolder`, `notify`,
   `shared` / `setShared`, `openOverlay`, `closeOverlay`, `props`, `theme`,
-  `pickFolder`, `focused`, `panes`, `terminals`, `run` (`terminal.open`,
-  `terminal.kill`); `readdir` from `fs/promises`.
+  `pickFolder`, `focused`, `panes`, `terminals`, `agents`, `run` (`terminal.open`,
+  `terminal.kill`, `agent.focus`, `pane.focus`); `readdir` from `fs/promises`.
   gpui-kit: `cx.write_to_clipboard`, `cx.open_url`, `svg(...).spin(900)`,
   `on_hover`, `on_mouse_down("right", …)`, `on_size_change`, `InputState` +
   `Input`.
-- Programs: `xcrun`, `open`, `emulator`, `adb`, `sh`, `rm`, `pgrep`, `find`. No network of its
+- Programs: `xcrun`, `open`, `emulator`, `adb`, `sh`, `rm`, `pgrep`, `find`, `ps`. No network of its
   own; `Get Xcode` and `Set ANDROID_HOME` open developer.apple.com /
   developer.android.com pages with `cx.open_url`.
 - Icons in `icons/` after Lucide (ISC notice there): devices, refresh, play,
@@ -358,7 +386,10 @@ action button reads `Working…` while it runs.
 - Untested: AVD erase run live, Android screenshot / Open URL on a running
   emulator or phone, the rail and the dialogs drawn on screen, Linux, zoom other than 1. iOS devices: the
   connected test (`transportType` wired or `tunnelState` connected) was not
-  observed with a device attached, and Open URL on one was not run live.
+  observed with a device attached, and Open URL on one was not run live. The
+  driver tag: a pointer click, its tooltip, the `working` and `blocked` looks
+  and the Maestro pane's tag were not seen live; only the idle MCP tag and its
+  `agent.focus` command were.
 
 ## Done when
 
