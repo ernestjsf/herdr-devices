@@ -11,6 +11,7 @@ let sdk = null;
 let avdBySerial = {}; // running emulator's serial -> AVD name, while adb lists it
 const asking = new Set(); // serials whose name is being asked for
 let avdList = null; // { avds, apis }, until forgetAvds()
+let maestro = { found: true, at: null }; // whether `maestro` starts, and when that was last checked
 const apps = {}; // device key -> its user apps' ids, while it is on
 const askingApps = new Set(); // keys whose apps are being asked for
 
@@ -41,6 +42,17 @@ async function tool(name, args) {
   }
   missing[name] = Date.now();
   return null;
+}
+
+// Whether the maestro CLI is installed, as last checked. Known (true) until the
+// first check answers; checked again once a minute, behind the answer. The check
+// mirrors the pane, which runs maestro under plain `sh -c`.
+export function maestroFound() {
+  if (!D.stillMissing(maestro.at, Date.now())) {
+    maestro.at = Date.now();
+    exec("sh", ["-c", "command -v maestro"]).then((r) => r.code === 0 && !!r.stdout.trim(), () => false).then((found) => { maestro.found = found; });
+  }
+  return maestro.found;
 }
 
 // A tool's path, finding it with a harmless call when no list read did yet.

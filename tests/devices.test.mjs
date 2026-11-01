@@ -235,6 +235,15 @@ test("Run <flow> again: under Run Maestro flow when the folder has a last flow",
   assert.ok(names({ kind: "ios", id: "I", state: "on" }, { lastFlow: "/p/a.yaml" }).includes("maestroAgain"));
 });
 
+test("maestro missing: the row stays, disabled with a hint, and no Run again", () => {
+  const sim = { kind: "sim", id: "U", state: "on" };
+  const names = (o) => D.actionsFor(sim, o).map((a) => a.action);
+  assert.deepEqual(D.actionsFor(sim, { maestro: false, lastFlow: "/p/a.yaml" }).find((a) => a.action === "maestro"), { action: "maestro", label: "Run Maestro flow…", icon: "flask", disabled: true, hint: "not installed" });
+  assert.deepEqual(names({ maestro: false, lastFlow: "/p/a.yaml" }), ["shutdown", "screenshot", "openurl", "maestro", "copy", "erase"]);
+  assert.deepEqual(D.actionsFor(sim, { maestro: true }), D.actionsFor(sim));
+  assert.ok(!D.actionsFor(sim).some((a) => a.disabled || a.hint === "not installed"));
+});
+
 test("menu key hints: space on Boot and Shut down, S on Screenshot", () => {
   const hints = (d) => D.actionsFor(d).filter((a) => a.hint).map((a) => [a.action, a.hint]);
   assert.deepEqual(D.actionsFor({ kind: "sim", id: "U", state: "on" })[0], { action: "shutdown", label: "Shut down", icon: "power", hint: "space" });

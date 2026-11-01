@@ -264,8 +264,10 @@ export const lastLine = (text) => (text ?? "").split(/\r?\n/).map((l) => l.trim(
 const DETACH = 'log=$1; shift; mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 2>&1 &';
 
 // What a row offers, in menu order. `lastFlow`: the flow last run in the tab's
-// folder, offered again right under Run Maestro flow. `hint`: the panel's key for it.
-export function actionsFor(d, { lastFlow } = {}) {
+// folder, offered again right under Run Maestro flow. `maestro`: false when the
+// CLI isn't installed, so the row stays but disabled, and there is no Run again.
+// `hint`: the panel's key for it.
+export function actionsFor(d, { lastFlow, maestro = true } = {}) {
   const on = d.state === "on", list = [];
   if (d.kind === "sim" || (d.kind === "avd" && d.avd)) {
     if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power", hint: "space" });
@@ -275,8 +277,9 @@ export function actionsFor(d, { lastFlow } = {}) {
   if (on && d.kind !== "ios") list.push({ action: "screenshot", label: "Screenshot", icon: "camera", hint: "S" });
   if (on) list.push({ action: "openurl", label: "Open URL…", icon: "link" });
   if (on) {
-    list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask" });
-    if (lastFlow) list.push({ action: "maestroAgain", label: `Run ${lastFlow.split("/").pop().replace(/\.ya?ml$/, "")} again`, icon: "flask", path: lastFlow });
+    if (!maestro) list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask", disabled: true, hint: "not installed" });
+    else list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask" });
+    if (maestro && lastFlow) list.push({ action: "maestroAgain", label: `Run ${lastFlow.split("/").pop().replace(/\.ya?ml$/, "")} again`, icon: "flask", path: lastFlow });
   }
   if (on && d.apps?.length) {
     list.push({ action: "copyapp", label: "Copy app id", icon: "copy" });

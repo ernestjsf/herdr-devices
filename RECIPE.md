@@ -82,6 +82,8 @@ parted by a 1px `border` line (8px side margin, 4px above and below): Shut down 
 Boot | Screenshot and `Open URL…` (when on) | `Run Maestro flow…` and `Run <flow>
 again` | `Copy app id` and a `Stop <app>` per app (when on with a known app) |
 `Copy UDID` / `Copy serial` / `Copy name` | `Erase…` in `ansi1` (icon and text).
+Without `maestro` installed `Run Maestro flow…` is a `dim` row (icon and text) with a
+`not installed` hint in the key hints' place, no hover or click.
 An empty section leaves no divider. Boot and Shut down
 close it at once (the row spins); Screenshot reads `Working…` while it runs.
 
@@ -232,7 +234,9 @@ action button reads `Working…` while it runs.
     (`https://`, `myapp://`), then `xcrun simctl openurl <udid> <url>` or `adb
     -s <serial> shell am start -a android.intent.action.VIEW -d '<url>'` (the
     URL single-quoted for the device's shell, since `adb shell` joins its words).
-  - **Run Maestro flow…**: on any booted device, connected ones too. The menu
+  - **Run Maestro flow…**: on any booted device, connected ones too. Without `maestro`
+    (`maestroFound()`: `sh -c 'command -v maestro'`, rechecked every 60 s, true until
+    the first answer) the row is `dim` with a `not installed` hint and does nothing. The menu
     row shows `Working…` while `maestroStart()`
     finds the tab's folder (the focused terminal's, else the tab's first with
     one, else home) and, when it has a `.maestro`, its flows (`find -H <dir>

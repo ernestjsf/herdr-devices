@@ -38,7 +38,8 @@ Keys, once you've clicked the list: up and down select a row, Enter does its cli
 
 Menu-only actions:
 
-- **Run Maestro flow…** needs a booted simulator or emulator. It lists the flows in the tab's `.maestro` folder. **All flows** runs the whole folder, any other row runs that one flow. Up, down and Enter pick, a click runs. With more than 6 flows a filter field sits on top. Browse… runs another folder. Without a `.maestro` folder it asks for a path instead.  - The flow you last ran in that folder is selected next time, and the menu offers it directly as **Run *flow* again**.
+- **Run Maestro flow…** needs a booted simulator or emulator. It lists the flows in the tab's `.maestro` folder. **All flows** runs the whole folder, any other row runs that one flow. Up, down and Enter pick, a click runs. With more than 6 flows a filter field sits on top. Browse… runs another folder. Without a `.maestro` folder it asks for a path instead. Without `maestro` on the PATH the row shows disabled with "not installed", and there is no Run again.
+  - The flow you last ran in that folder is selected next time, and the menu offers it directly as **Run *flow* again**.
   - The Variables field takes `KEY=VALUE` words, passed as `maestro test -e`, and remembers them per flow.
   - The run opens a terminal pane below, replacing that device's previous Maestro pane, and the pane stays open as a shell. A failed run prints its debug folder, the newest under `~/.maestro/tests`.
   - Flows should launch the app themselves (`launchApp` with `clearState` and `arguments` for preconditions), as Maestro recommends. The mod only runs `maestro test`.

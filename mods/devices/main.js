@@ -7,7 +7,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
 import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, deviceDrivers, driverTag, dividerBefore, menuDividers } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroCwd, maestroStart, runMaestro, mark, readPs } from "./actions.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroFound, maestroCwd, maestroStart, runMaestro, mark, readPs } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -39,9 +39,9 @@ const menuHeight = (items) => items.length * MENU_ROW + menuDividers(items) * ME
 // The tab folder's last flow is offered again and a missing maestro disables its row,
 // so the menu knows its rows (and size) now.
 function openMenu(d) {
-  const cwd = maestroCwd(), lastFlow = shared("devices.maestroLast")?.[cwd];
-  const items = actionsFor(d, { lastFlow });
-  openOverlay({ mod: "devices", kind: "popup", width: 250, height: menuHeight(items), props: { role: "menu", device: d, cwd, lastFlow } });
+  const cwd = maestroCwd(), lastFlow = shared("devices.maestroLast")?.[cwd], maestro = maestroFound();
+  const items = actionsFor(d, { lastFlow, maestro });
+  openOverlay({ mod: "devices", kind: "popup", width: 250, height: menuHeight(items), props: { role: "menu", device: d, cwd, lastFlow, maestro } });
 }
 
 // The one link an empty or error line offers.
@@ -73,6 +73,7 @@ class Panel {
     this.seen = shared("devices.changed");
     this.reload(cx, "ios", !cache);
     this.reload(cx, "android", !cache);
+    maestroFound(); // checked now, so the first menu already knows
     // adb can only be polled (exec waits for a program to end, so
     // `adb track-devices` can't stream). Timers run while hidden: no faster.
     // The AVDs themselves are listed again only when their .ini files change.
@@ -346,7 +347,7 @@ class Menu {
 
   choose(i, cx) {
     const a = this.items[i], { overlay } = props(), d = this.device;
-    if (!a || this.busy >= 0) return;
+    if (!a || a.disabled || this.busy >= 0) return;
     if (a.action === "copy" || a.action === "copyapp") { copy(a.action === "copy" ? d.id : d.apps[0], cx); closeOverlay(overlay); return; }
     if (a.action === "maestroAgain") { closeOverlay(overlay); runMaestro(d, a.path, this.cwd, parseVars(shared("devices.maestroVars")?.[a.path] ?? "") ?? []); return; }
     if (a.action === "openurl" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : a.action, d); return; }
@@ -377,10 +378,11 @@ class Menu {
       .children(this.items.flatMap((a, i) => [
         ...(dividerBefore(this.items, i) ? [div().mx(8).my(4).h(1).flex_none().bg(t.border)] : []),
         h_flex().id(`dm-${a.action}-${i}`).h(MENU_ROW).flex_none().px(8).gap(9).rounded(7).items_center()
-          .text_color(a.danger ? t.ansi1 : t.foreground).cursor_pointer()
-          .when(i === this.at || i === this.busy, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => this.choose(i, cx))
-          .child(svg(icon(a.icon)).size(14).flex_none().text_color(a.danger ? t.ansi1 : t.muted))
+          .text_color(a.disabled ? t.dim : a.danger ? t.ansi1 : t.foreground)
+          .when(!a.disabled, (el) => el.cursor_pointer()
+            .when(i === this.at || i === this.busy, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
+            .on_click((_e, cx) => this.choose(i, cx)))
+          .child(svg(icon(a.icon)).size(14).flex_none().text_color(a.disabled ? t.dim : a.danger ? t.ansi1 : t.muted))
           .child(div().flex_1().min_w(0).truncate().child(i === this.busy ? "Working…" : a.label))
           .when(a.hint, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(a.hint)))]));
   }
