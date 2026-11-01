@@ -264,15 +264,15 @@ export const lastLine = (text) => (text ?? "").split(/\r?\n/).map((l) => l.trim(
 const DETACH = 'log=$1; shift; mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 2>&1 &';
 
 // What a row offers, in menu order. `lastFlow`: the flow last run in the tab's
-// folder, offered again right under Run Maestro flow.
+// folder, offered again right under Run Maestro flow. `hint`: the panel's key for it.
 export function actionsFor(d, { lastFlow } = {}) {
   const on = d.state === "on", list = [];
   if (d.kind === "sim" || (d.kind === "avd" && d.avd)) {
-    if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
-    else if (d.state === "off") list.push({ action: "boot", label: "Boot", icon: "play" });
-  } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power" });
+    if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power", hint: "space" });
+    else if (d.state === "off") list.push({ action: "boot", label: "Boot", icon: "play", hint: "space" });
+  } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power", hint: "space" });
   // devicectl has no screenshot.
-  if (on && d.kind !== "ios") list.push({ action: "screenshot", label: "Screenshot", icon: "camera" });
+  if (on && d.kind !== "ios") list.push({ action: "screenshot", label: "Screenshot", icon: "camera", hint: "S" });
   if (on) list.push({ action: "openurl", label: "Open URL…", icon: "link" });
   if (on) {
     list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask" });
@@ -445,11 +445,13 @@ export function stepsFor(action, d, x) {
 // comes and goes.
 export const deviceKey = (d) => (d.kind === "avd" ? `avd:${d.avd ?? d.id}` : `${d.kind}:${d.id}`);
 
-// Most recently used first: simctl's lastBootedAt, or the latest action this
-// mod ran on it (`used`: key -> ms). Ties keep their order.
-export function sortRecent(devices, used = {}) {
+// Booted (or with a press under way, `pending`) first, then most recently used:
+// simctl's lastBootedAt, or the latest action this mod ran on it (`used`: key -> ms).
+// Ties keep their order.
+export function sortRecent(devices, used = {}, pending = {}) {
   const at = (d) => Math.max(d.lastUsed ?? 0, used[deviceKey(d)] ?? 0);
-  return devices.map((d, i) => [d, i]).sort(([a, i], [b, j]) => at(b) - at(a) || i - j).map(([d]) => d);
+  const on = (d) => (d.state === "on" || pending[deviceKey(d)] ? 1 : 0);
+  return devices.map((d, i) => [d, i]).sort(([a, i], [b, j]) => on(b) - on(a) || at(b) - at(a) || i - j).map(([d]) => d);
 }
 
 const PLATFORM_KEYS = { ios: ["sim:", "ios:"], android: ["avd:", "phone:"] };
@@ -470,13 +472,19 @@ export function updateUsed(used, which, prev, next, now, complete) {
   return out;
 }
 
-// A section's rows by default: the `keep` most recent plus every one that
-// isn't off (booted, starting, offline) or has an action under way.
+// A section's rows by default: every one that isn't off (booted, starting,
+// offline) or has an action under way, plus the `keep` most recent off ones.
 export function foldRows(sorted, { all = false, pending = {}, keep = 3 } = {}) {
   if (all) return { shown: sorted, hidden: 0 };
-  const shown = sorted.filter((d, i) => i < keep || d.state !== "off" || pending[deviceKey(d)]);
+  let off = 0;
+  const shown = sorted.filter((d) => d.state !== "off" || pending[deviceKey(d)] || off++ < keep);
   return { shown, hidden: sorted.length - shown.length };
 }
+
+// Whether every section, unfolded, fits the list's height (`sections`: { count, closed }):
+// a header is 32 px with its margin, a row 26; a closed section is its header.
+export const fitsUnfolded = (sections, listHeight) =>
+  listHeight > 0 && sections.reduce((h, s) => h + 32 + (s.closed ? 0 : 26 * s.count), 0) <= listHeight;
 
 const PENDING_MS = 180000;
 const LAUNCH_GRACE_MS = 10000;
@@ -529,30 +537,50 @@ export function deviceIcon(d) {
 }
 
 const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const ago = (ms) => (ms < 60000 ? `${Math.max(0, Math.floor(ms / 10000) * 10)}s ago` : ms < 3600000 ? `${Math.floor(ms / 60000)}m ago` : `${Math.floor(ms / 3600000)}h ago`);
+const ago = (ms) => (ms < 3600000 ? `${Math.floor(ms / 60000)}m ago` : `${Math.floor(ms / 3600000)}h ago`);
 
-// "5 simulators · 1 emulator · refreshed 10s ago": only the kinds there are;
-// "No devices" when none.
+// "5 simulators · 1 emulator": only the kinds there are; "No devices" when none.
+// "· refreshed 2m ago" only once the reads have stalled for a minute.
 export function footerText(ios, android, refreshedAt, now) {
   const n = (rows, kind) => rows.filter((d) => d.kind === kind).length;
   const kinds = [[n(ios, "sim"), "simulator"], [n(android, "avd"), "emulator"], [n(android, "phone") + n(ios, "ios"), "device"]];
   const parts = kinds.filter(([n]) => n > 0).map(([n, word]) => count(n, word));
   if (!parts.length) parts.push("No devices");
-  if (refreshedAt) parts.push(`refreshed ${ago(now - refreshedAt)}`);
+  if (refreshedAt && now - refreshedAt >= 60000) parts.push(`refreshed ${ago(now - refreshedAt)}`);
   return parts.join(" · ");
 }
 
 // A row's hover icons, at most three: boot or shut down, screenshot, more
-// (the full menu, where Erase lives).
+// (the full menu, where Erase lives). A boot under way can be cancelled where a
+// shutdown runs (the menu's, as if booted): simctl shuts a booting simulator, adb emu kill needs the serial.
 export function hoverActions(d, phase) {
   const list = actionsFor(d).filter((a) => (a.action === "boot" || a.action === "shutdown" ? !phase : a.action === "screenshot"));
+  if (phase === "booting" && (d.kind === "sim" || (d.kind === "avd" && d.serial))) list.unshift(actionsFor({ ...d, state: "on" })[0]);
   return [...list, { action: "more", label: "More", icon: "more" }];
 }
 
-// What clicking a row does: boot it when off, bring a booted simulator's
-// window forward ("focus"), else nothing.
-export function primaryAction(d, phase) {
-  if (phase) return null;
-  if (d.state === "off" && (d.kind === "sim" || d.avd)) return "boot";
-  return d.state === "on" && d.kind === "sim" ? "focus" : null;
+// The space key does what the row's power icon does: Boot an off device, Shut
+// down a booted one (or cancel its boot); nothing in another phase.
+export const toggleAction = (d, phase) => hoverActions(d, phase).find((a) => a.action === "boot" || a.action === "shutdown")?.action ?? null;
+
+// Up / down through the visible rows' keys, wrapping: with no selection (or one
+// no longer shown) down takes the first, up the last.
+export function stepSelection(keys, selected, delta) {
+  if (!keys.length) return null;
+  const i = keys.indexOf(selected);
+  return i < 0 ? keys[delta > 0 ? 0 : keys.length - 1] : keys[(i + delta + keys.length) % keys.length];
 }
+
+// What clicking a row does: bring a booted simulator's window forward ("focus"),
+// else nothing. Booting is the hover icon's, so a stray click starts nothing;
+// the rail has no hover icons, so there a click boots an off simulator or AVD.
+export function primaryAction(d, phase, { rail = false } = {}) {
+  if (phase) return null;
+  if (d.state === "on") return d.kind === "sim" ? "focus" : null;
+  return rail && d.state === "off" && (d.kind === "sim" || (d.kind === "avd" && d.avd)) ? "boot" : null;
+}
+
+// The menu's sections, in actionsFor's order: a divider sits where the group changes.
+const MENU_GROUP = { boot: "power", shutdown: "power", screenshot: "view", openurl: "view", maestro: "maestro", maestroAgain: "maestro", copyapp: "app", stop: "app", copy: "copy", erase: "erase" };
+export const dividerBefore = (items, i) => i > 0 && MENU_GROUP[items[i].action] !== MENU_GROUP[items[i - 1].action];
+export const menuDividers = (items) => items.filter((_a, i) => dividerBefore(items, i)).length;

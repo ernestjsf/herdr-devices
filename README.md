@@ -10,17 +10,19 @@ right-click menu and it runs on that device in a pane below.
 ## What you get
 
 - iOS simulators grouped by runtime, with the iPhones, iPads, Watches, TVs and Vision Pros connected to the Mac in the section of their OS version. Android AVDs and `adb` devices in one section.
-- Running devices and the three most recent per section. **Show all** for the rest.
+- Running devices first, then the most recent. When the list has room, every device shows; otherwise running ones and the three most recent off ones per section, with **Show all** for the rest.
 - Each row shows the device's icon (phone, tablet, watch, TV, Vision Pro) and its state: a dot when booted, dim when off, a spinner while booting or stopping, a triangle when offline.
 - A booted device shows the app it is running as a tag (`com.example.budget` shows `budget`). Hover for the full id. With several iOS apps running, it is the one in front.
 - A second tag names who is driving the device: the agent (`claude`, `codex`) whose Maestro MCP session holds a simulator or connected iPhone, or `maestro` while the panel's own Run Maestro flow runs. It is the `working` color while driving, `blocked` when the agent waits on you, and muted when it holds the device but is idle. Hover for every driver and its tab; the tag brightens, and a click jumps to that agent. Android devices driven over Maestro MCP aren't tagged yet: only the panel's own run tags them.
 - Live: a simulator boot or shutdown from any terminal shows within a second. Android and connected iOS devices are polled every 5 s.
-- The last list paints instantly on open. Under 160 px the panel becomes a rail.
+- The last list paints instantly on open. Under 160 px the panel becomes a rail: icons only, the name and state as a tooltip, and a click boots an off device.
 
 ## Actions
 
-Click a row to boot it, or to bring Simulator to the front when it is booted.
-Hover for Boot or Shut down, Screenshot and More. Right-click for the full menu.
+Hover a row for Boot or Shut down, Screenshot and More; Shut down on a booting device cancels the boot. Clicking a booted simulator's row brings
+Simulator to the front; clicking never boots, except in the rail. Right-click for the full menu, in sections.
+
+Keys, once you've clicked the list: up and down select a row, Enter does its click, space boots or shuts it down, S takes a screenshot, M opens the menu, Escape clears the selection.
 
 | Action     | Simulator                          | Android                                              |
 |------------|------------------------------------|------------------------------------------------------|
@@ -36,8 +38,7 @@ Hover for Boot or Shut down, Screenshot and More. Right-click for the full menu.
 
 Menu-only actions:
 
-- **Run Maestro flow…** needs a booted simulator or emulator. It lists the flows in the tab's `.maestro` folder. **All flows** runs the whole folder, any other row runs that one flow. Up, down and Enter pick, a click runs. With more than 6 flows a filter field sits on top. Browse… runs another folder. Without a `.maestro` folder it asks for a path instead.
-  - The flow you last ran in that folder is selected next time, and the menu offers it directly as **Run *flow* again**.
+- **Run Maestro flow…** needs a booted simulator or emulator. It lists the flows in the tab's `.maestro` folder. **All flows** runs the whole folder, any other row runs that one flow. Up, down and Enter pick, a click runs. With more than 6 flows a filter field sits on top. Browse… runs another folder. Without a `.maestro` folder it asks for a path instead.  - The flow you last ran in that folder is selected next time, and the menu offers it directly as **Run *flow* again**.
   - The Variables field takes `KEY=VALUE` words, passed as `maestro test -e`, and remembers them per flow.
   - The run opens a terminal pane below, replacing that device's previous Maestro pane, and the pane stays open as a shell. A failed run prints its debug folder, the newest under `~/.maestro/tests`.
   - Flows should launch the app themselves (`launchApp` with `clearState` and `arguments` for preconditions), as Maestro recommends. The mod only runs `maestro test`.
@@ -61,7 +62,7 @@ Only local tools, always as argument lists. It never reaches the network.
 - `ps` to see which simulator app is using CPU, and which terminal's Maestro MCP drives a device (`ps -axo pid=,ppid=,time=,command=`, once per iOS read). `open` to bring Simulator forward.
 - `emulator` and `adb` for Android, including `dumpsys` to see the app in front. Both are found on `PATH`, then under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`.
 - `pgrep` to check a started emulator is still running, `sh` to start it detached, `rm` to delete an AVD's `snapshots/` on erase.
-- `find` to list the flows in a `.maestro` folder. `maestro` from your `PATH`, in a terminal pane via Herdr. Maestro's own network use is not the mod's.
+- `find` to list the flows in a `.maestro` folder. `maestro` from your `PATH`, in a terminal pane via Herdr; the mod checks for it with `command -v maestro` once a minute. Maestro's own network use is not the mod's.
 - It lists and reads the AVD home (`$ANDROID_AVD_HOME`, else `~/.android/avd`) and watches it and `~/Library/Developer/CoreSimulator`.
 
 ## Install

@@ -6,12 +6,12 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
-import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, footerText, avdListChanged, driversFrom, deviceDrivers, driverTag } from "./devices.js";
+import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, deviceDrivers, driverTag, dividerBefore, menuDividers } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroCwd, maestroStart, runMaestro, mark, readPs } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
-const MENU_ROW = 30;
+const MENU_ROW = 30, MENU_DIVIDER = 9;
 
 // Per-copy conveniences (the last list, the folds); never required.
 const store = {
@@ -24,7 +24,7 @@ function copy(text, cx) {
   notify({ level: "success", title: "Copied", body: text, timeout: 2000 });
 }
 
-function openDialog(role, d, extra = {}, height = role === "url" ? 200 : 190) {
+function openDialog(role, d, extra = {}, height = role === "url" ? 200 : 212) {
   openOverlay({ mod: "devices", kind: "dialog", width: 420, height, props: { role, device: d, ...extra } });
 }
 
@@ -35,10 +35,13 @@ function openDialog(role, d, extra = {}, height = role === "url" ? 200 : 190) {
 const PICK_TOP = 78, PICK_FILTER = 46, PICK_FOOTER = 118;
 const pickerHeight = (n) => PICK_TOP + (n > 6 ? PICK_FILTER : 0) + Math.min(n + 1, 8) * MENU_ROW + PICK_FOOTER;
 
-// The tab folder's last flow is offered again, so the menu knows its rows (and height) now.
+const menuHeight = (items) => items.length * MENU_ROW + menuDividers(items) * MENU_DIVIDER + 38;
+// The tab folder's last flow is offered again and a missing maestro disables its row,
+// so the menu knows its rows (and size) now.
 function openMenu(d) {
   const cwd = maestroCwd(), lastFlow = shared("devices.maestroLast")?.[cwd];
-  openOverlay({ mod: "devices", kind: "popup", width: 210, height: actionsFor(d, { lastFlow }).length * MENU_ROW + 38, props: { role: "menu", device: d, cwd, lastFlow } });
+  const items = actionsFor(d, { lastFlow });
+  openOverlay({ mod: "devices", kind: "popup", width: 250, height: menuHeight(items), props: { role: "menu", device: d, cwd, lastFlow } });
 }
 
 // The one link an empty or error line offers.
@@ -61,7 +64,10 @@ class Panel {
     this.spinning = 0;
     this.busy = 0;
     this.selected = null;
+    this.visible = []; // the shown rows, top to bottom, for the keys
+    this.handle = cx.focus_handle();
     this.width = 0;
+    this.height = 0;
     this.drivers = []; // Maestro MCP's device servers, from the last iOS read
     this.cpu = {}; // their CPU seconds then, by pid
     this.seen = shared("devices.changed");
@@ -80,7 +86,7 @@ class Panel {
     // Simulators: their device.plist changes on boot and shutdown. Phones can
     // only be polled, and the poll is the simulators' safety net too.
     cx.timer.every(5000, (cx) => this.reload(cx, "ios"));
-    cx.timer.every(10000, (cx) => cx.notify()); // the footer's "refreshed …s ago"
+    cx.timer.every(10000, (cx) => cx.notify()); // the footer's "refreshed …m ago"
     cx.spawn(async (cx) => {
       try {
         for (;;) {
@@ -162,11 +168,29 @@ class Panel {
     cx.notify();
   }
 
-  click(d, phase, key, cx) {
+  click(d, phase, key, rail, cx) {
     this.selected = key;
-    const a = primaryAction(d, phase);
-    if (a === "boot") this.act("boot", d, cx);
-    else if (a === "focus") cx.spawn(async () => focus(d));
+    this.handle.focus();
+    const action = primaryAction(d, phase, { rail });
+    if (action === "focus") cx.spawn(async () => focus(d));
+    else if (action === "boot") this.act("boot", d, cx);
+    cx.notify();
+  }
+
+  // The list's keys, on the selected row (a stale one counts as none). Whole
+  // keystrokes, so cmd-m and the like pass through.
+  key(e, cx) {
+    const k = e.keystroke, d = this.visible.find((r) => deviceKey(r) === this.selected);
+    const phase = d && phaseOf(d, shared("devices.pending") ?? {}), toggle = d && toggleAction(d, phase);
+    if (k === "down" || k === "up") this.selected = stepSelection(this.visible.map(deviceKey), this.selected, k === "down" ? 1 : -1);
+    else if (k === "escape" && this.selected) this.selected = null;
+    else if (!d) return;
+    else if (k === "enter") this.click(d, phase, this.selected, false, cx);
+    else if (k === "space" && toggle) this.act(toggle, d, cx);
+    else if (k === "s" && hoverActions(d, phase).some((a) => a.action === "screenshot")) this.act("screenshot", d, cx);
+    else if (k === "m") openMenu(d);
+    else return;
+    cx.stop_propagation();
     cx.notify();
   }
 
@@ -191,25 +215,27 @@ class Panel {
     return h_flex().id(`row-${key}`).h(26).flex_none().mx(6).pr(4).gap(8).items_center().when(rail, (el) => el.justify_center()).rounded(6).cursor_pointer().text_size(12.5)
       .when(this.selected === key, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => this.click(d, phase, key, cx))
+      .on_click((_e, cx) => this.click(d, phase, key, rail, cx))
       .on_mouse_down("right", (_e, cx) => { openMenu(d); cx.stop_propagation(); })
+      .when(rail, (el) => el.tooltip(`${d.name} · ${phase ? `${phase}…` : d.state === "on" ? "booted" : d.state}`))
       // Reserved: the run half colors this bar by space. Nothing yet.
       .child(div().w(2).h(14).flex_none().rounded(1))
       .child(div().size(14).flex_none().child(this.glyph(glyphOf(d, phase), d, t)))
       .when(!rail, (el) => el
         .child(div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name))
-        // A simulator's version is its section's title already.
-        .when(d.kind !== "sim" && Boolean(d.detail), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail)))
         .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.done + "1f").text_size(10.5).font_medium().text_color(t.done).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
         .when(drivers.length > 0, (n) => n.child(this.driver(drivers, key, c)))
         .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
         .child(div().flex_1())
+        // Right-aligned before the icons. A simulator's version is its section's title already.
+        .when(d.kind !== "sim" && Boolean(d.detail), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail)))
         // Icons sit dim at the right edge and brighten under the pointer: gpui-kit has no
         // hover groups, and redrawing the panel on every row hover made it lag.
         .child(h_flex().flex_none().opacity(0.4).hover((s) => s.opacity(1)).children(hoverActions(d, phase).map((a) =>
           div().id(`b-${a.action}-${key}`).size(24).flex_none().flex().items_center().justify_center().rounded(5)
             .hover((s) => s.bg(t.raised))
             .on_click((_e, cx) => { cx.stop_propagation(); this.act(a.action, d, cx); })
+            .tooltip(a.label)
             .child(svg(icon(a.icon)).size(13).text_color(t.muted))))));
   }
 
@@ -235,13 +261,14 @@ class Panel {
         .child(div().id(`link-${id}`).text_color(t.accent).cursor_pointer().on_click((_e, cx) => link.go(cx)).child(link?.label ?? "")));
   }
 
-  // A section: header (chevron, title, count), its rows (recent first,
-  // folded to the recent ones), the fold row; `empty`: { text, link } instead of rows.
+  // A section: header (chevron, title, count), its rows (booted, then recent first,
+  // folded to the recent ones unless all fit, `c.fits`), the fold row; `empty`: { text, link } instead of rows.
   section(title, devices, empty, c) {
     const { t, rail, pending, used } = c;
-    const closed = this.folds.closed[title] === true, all = this.folds.all[title] === true;
-    const sorted = sortRecent(devices, used), { shown, hidden } = foldRows(sorted, { all, pending });
-    const canFold = foldRows(sorted, { pending }).hidden > 0;
+    const closed = this.folds.closed[title] === true, all = c.fits || this.folds.all[title] === true;
+    const sorted = sortRecent(devices, used, pending), { shown, hidden } = foldRows(sorted, { all, pending });
+    const canFold = !c.fits && foldRows(sorted, { pending }).hidden > 0;
+    if (rail || !closed) c.shown.push(...shown);
     if (rail) return [div().mx(8).my(6).h(1).flex_none().bg(t.border), ...shown.map((d) => this.row(d, c))];
     const out = [h_flex().id(`sec-${title}`).h(26).flex_none().px(14).mt(6).gap(6).items_center().cursor_pointer()
       .on_click((_e, cx) => { this.fold("closed", title); cx.notify(); })
@@ -265,32 +292,38 @@ class Panel {
     const asked = shared("devices.request");
     if (asked) { setShared("devices.request", null); if (Date.now() - asked.at < 10000) this.act(asked.action, asked.device, cx); }
     const t = theme(), rail = this.width > 0 && this.width < 160;
-    const c = { t, rail, pending: shared("devices.pending") ?? {}, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents() };
-    const body = [];
+    const body = [], secs = []; // secs: each section's (title, devices, empty), drawn once the fit is known
     if (!this.ios && !this.android) body.push(this.line("loading", "Loading devices…", null, t));
     if (this.ios) {
       const { sections, error } = this.ios;
-      if (error) body.push(...this.section("iOS", [], { text: error, link: error === "xcrun not found" ? LINKS.xcode : { label: "Retry", go: (cx) => this.reload(cx, "ios", true) } }, c));
-      else if (!sections.length) body.push(...this.section("iOS", [], { text: "No simulators", link: LINKS.openXcode }, c));
-      for (const s of sections) body.push(...this.section(s.title, s.devices, null, c));
+      if (error) secs.push(["iOS", [], { text: error, link: error === "xcrun not found" ? LINKS.xcode : { label: "Retry", go: (cx) => this.reload(cx, "ios", true) } }]);
+      else if (!sections.length) secs.push(["iOS", [], { text: "No simulators", link: LINKS.openXcode }]);
+      for (const s of sections) secs.push([s.title, s.devices, null]);
     }
     if (this.android) {
       const { devices, notes } = this.android;
       const missing = notes.some((n) => n.endsWith("not found"));
       const empty = notes.length ? { text: notes.join(" · "), link: missing ? LINKS.sdk : { label: "Retry", go: (cx) => this.reload(cx, "android", true) } }
         : devices.length ? null : { text: "No emulators or devices", link: LINKS.studio };
-      body.push(...this.section("Android", devices, empty, c));
+      secs.push(["Android", devices, empty]);
     }
+    // The list: the panel less its border (2), header (42), footer (28, not in the rail) and bottom padding (8).
+    const listHeight = this.height - 2 - 42 - (rail ? 0 : 28) - 8;
+    const fits = fitsUnfolded(secs.map(([title, devices]) => ({ count: devices.length, closed: !rail && this.folds.closed[title] === true })), listHeight);
+    const c = { t, rail, fits, pending: shared("devices.pending") ?? {}, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents(), shown: [] };
+    for (const [title, devices, empty] of secs) body.push(...this.section(title, devices, empty, c));
+    this.visible = c.shown;
     const working = this.spinning > 0 || this.busy > 0;
-    return v_flex().id("root").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
+    return v_flex().id("root").track_focus(this.handle).size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13)
-      .on_size_change((size, cx) => { this.width = size.width; cx.notify(); })
+      .on_size_change((size, cx) => { this.width = size.width; this.height = size.height; cx.notify(); })
+      .on_key_down((e, cx) => this.key(e, cx))
       .child(h_flex().h(42).flex_none().px(rail ? 0 : 14).gap(8).items_center().when(rail, (el) => el.justify_center()).border_b(1).border_color(t.border)
         .when(!rail, (el) => el.child(div().font_semibold().child("Devices")).child(div().flex_1()))
         .child(div().id("refresh").size(24).flex_none().flex().items_center().justify_center().rounded(6)
           .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { forgetAvds(); this.reloadAll(cx, true); }))
           .child(working ? svg(SPINNER).size(14).text_color(t.muted).spin(900) : svg(icon("refresh")).size(14).text_color(t.muted))))
-      .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().children(body))
+      .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().on_click(() => this.handle.focus()).children(body))
       .when(!rail, (el) => el.child(h_flex().h(28).flex_none().px(14).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
         .child(div().min_w(0).truncate().child(footerText(this.rows("ios"), this.android?.devices ?? [], this.refreshedAt, Date.now())))));
   }
@@ -301,10 +334,10 @@ class Panel {
 // finishes first ("Working…"), then closes.
 class Menu {
   init(cx) {
-    const { device, cwd, lastFlow } = props();
+    const { device, cwd, lastFlow, maestro } = props();
     this.device = device;
     this.cwd = cwd;
-    this.items = actionsFor(device, { lastFlow });
+    this.items = actionsFor(device, { lastFlow, maestro });
     this.at = -1;
     this.busy = -1;
     this.handle = cx.focus_handle();
@@ -341,13 +374,15 @@ class Menu {
         cx.notify();
       })
       .child(div().h(24).px(8).flex_none().truncate().text_size(11).text_color(t.dim).child(this.device.name))
-      .children(this.items.map((a, i) =>
-        h_flex().id(`dm-${a.action}-${i}`).h(MENU_ROW).flex_none().px(8).gap(9).rounded(7).items_center().cursor_pointer()
-          .text_color(a.danger ? t.ansi1 : t.foreground)
+      .children(this.items.flatMap((a, i) => [
+        ...(dividerBefore(this.items, i) ? [div().mx(8).my(4).h(1).flex_none().bg(t.border)] : []),
+        h_flex().id(`dm-${a.action}-${i}`).h(MENU_ROW).flex_none().px(8).gap(9).rounded(7).items_center()
+          .text_color(a.danger ? t.ansi1 : t.foreground).cursor_pointer()
           .when(i === this.at || i === this.busy, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.choose(i, cx))
           .child(svg(icon(a.icon)).size(14).flex_none().text_color(a.danger ? t.ansi1 : t.muted))
-          .child(div().flex_1().min_w(0).truncate().child(i === this.busy ? "Working…" : a.label))));
+          .child(div().flex_1().min_w(0).truncate().child(i === this.busy ? "Working…" : a.label))
+          .when(a.hint, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(a.hint)))]));
   }
 }
 
@@ -513,8 +548,8 @@ class Dialog {
       : !erase
       ? `Opens it on ${d.name} (${d.kind === "sim" ? "xcrun simctl openurl" : d.kind === "ios" ? "xcrun devicectl, in Safari" : "am start -a android.intent.action.VIEW"}).`
       : d.kind === "sim"
-        ? `Shuts it down and resets it to factory state: every app and its data goes. ${d.name} stays in the list.`
-        : `Deletes its snapshots/, then boots it once without a window with the emulator's -wipe-data and stops it. It starts like a new device.`;
+        ? `Removes every app and its data on ${d.name}. Shuts it down and resets it to factory state; it stays in the list.`
+        : `Removes every app and its data on ${d.name}; it starts like new. Deletes its snapshots/, then boots it once without a window with the emulator's -wipe-data and stops it.`;
     return v_flex().id("devices-dialog").track_focus(this.handle).size_full().min_h(0).p(18).gap(10).bg(t.popover).text_size(13).text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape") closeOverlay(props().overlay);

@@ -1,7 +1,7 @@
 # Devices
 
 Your iOS simulators, connected iPhones and Android emulators and phones in a
-Herdr side panel, most recently used first. Click a device to boot it; hover for
+Herdr side panel, most recently used first. Hover a device for Boot,
 Shut down and Screenshot. The menu adds Open URL, Run Maestro flow, Copy id,
 Stop app and Erase. Each row shows the device's state and the app it is running.
 Run Maestro flow opens a picker of the project's flows, remembers the last one
@@ -35,12 +35,13 @@ in `foreground`. Top to bottom:
     gaps, 12.5px type. Left to right: a 2px wide, 14px tall bar slot (drawn
     empty: reserved for a per-space color later), a 14px icon slot, the name
     (truncated; `foreground` and medium weight when booted, `muted` otherwise),
-    for Android rows the secondary at 11px `dim` (never truncated: an AVD's `API
-    36`, `emulator` for an unknown AVD, a phone's `USB` or `Wi-Fi`; a
-    simulator's version is its section's title, so none), then the app running
+    then the app running
     on it (see Apps) as a tag: 16px tall, 5px side padding, radius 4, `done` at
     12% (`done` + `1f`) behind 10.5px medium `done` text, at most 96px wide
-    (truncated); during a phase `booting…` or `stopping…` at 11px `dim`, then on
+    (truncated), then the driver tag (see Drivers) in the same shape; during a phase `booting…` or `stopping…` at 11px `dim`, then on
+    the right, just before the icons, the secondary at 11px `dim` (never truncated: an AVD's `API
+    36`, `emulator` for an unknown AVD, a phone's or iPhone's `USB` or `Wi-Fi`; a
+    simulator's version is its section's title, so none), and
     the icons at the right edge, dim until the pointer is over them. The clicked row is `selected`; `hover`
     under the pointer. Rows carry no tint of their own.
   - **Icons** (Lucide, in `icons/`): by the device's name, `tablet` (iPad,
@@ -52,8 +53,9 @@ in `foreground`. Top to bottom:
     adb states a 12px filled triangle in `blocked`.
   - **Hover icons**, at most three, 24px squares, radius 5, `raised` under the
     pointer, 13px icons in `muted`: Shut down (power) when on or Boot (play)
-    when off — simulators and AVDs, not during a phase; Screenshot (camera) when
-    on; More (three dots) always.
+    when off — simulators and AVDs, not during a phase, except Shut down while
+    `booting` cancels the boot (a simulator always, an AVD once it has a serial);
+    Screenshot (camera) when on; More (three dots) always.
   - **Fold row** under a section that has more than it shows: 24px, 32px left
     padding (the text lines up with the names), 11.5px `muted`, `Show all (N)`, and `Show fewer` once open.
   - **Empty and error lines**, centered, 12px, 8px vertical padding: the text in
@@ -63,26 +65,31 @@ in `foreground`. Top to bottom:
     emulators or devices · Open Android Studio`. `Loading devices…` before the
     first read when nothing is cached.
 - **Footer**, 28px, 14px side padding, 1px `border` above, 11px `dim`,
-  truncated: `5 simulators · 1 emulator · refreshed 10s ago` (only the kinds
-  there are; `No devices` when none; seconds in steps of 10, then `2m ago`,
-  `1h ago`).
+  truncated: `5 simulators · 1 emulator` (only the kinds
+  there are; `No devices` when none); `· refreshed 2m ago` (or `1h ago`) only
+  once the last read is a minute old, as when the reads stall.
 - **Rail**: narrower than 160px, the header holds only Refresh (centered), each
   section is a 1px `border` line with 6px above and below, rows show only the
-  icon, centered, and there are no hover icons, fold rows or footer.
+  icon, centered, with `<name> · booted` (or `off`, `booting…`, the adb state)
+  as a tooltip, and there are no hover icons, fold rows or footer.
 
-**The menu** is a 210px popup at the pointer on `popover`, 5px padding, its
-height 30px per item plus 38px: a 24px line with the device's name at 11px
+**The menu** is a 250px popup at the pointer on `popover`, 5px padding, its
+height 30px per item, 9px per divider, plus 38px: a 24px line with the device's name at 11px
 `dim`, then 30px rows (radius 7, 9px gap, a 14px icon in `muted`, 12.8px text),
-`selected` for the keyboard choice, `hover` under the pointer. Items, in order:
-Shut down or Boot, Screenshot and `Open URL…` (when on), `Copy app id` and a
-`Stop <app>` per app (when on with a known app), `Copy UDID` / `Copy
-serial` / `Copy name`, `Erase…` in `ansi1` (icon and text). Boot and Shut down
+`selected` for the keyboard choice, `hover` under the pointer; a hint at 11px `dim`
+after the label names the panel's key: `space` on Boot and Shut down, `S` on Screenshot. Items, in sections
+parted by a 1px `border` line (8px side margin, 4px above and below): Shut down or
+Boot | Screenshot and `Open URL…` (when on) | `Run Maestro flow…` and `Run <flow>
+again` | `Copy app id` and a `Stop <app>` per app (when on with a known app) |
+`Copy UDID` / `Copy serial` / `Copy name` | `Erase…` in `ansi1` (icon and text).
+An empty section leaves no divider. Boot and Shut down
 close it at once (the row spins); Screenshot reads `Working…` while it runs.
 
-**Dialogs** are 420px wide (Open URL 200px tall, Erase 190px) on `popover`,
+**Dialogs** are 420px wide (Open URL 200px tall, Erase 212px) on `popover`,
 18px padding, 10px gaps, like Herdr's prompt and confirm: a 15px semibold title
 (`Open URL` or `Erase <name>?`) with `Esc` at 11px `dim` on the right, a `muted`
-sentence, for Open URL a 36px input (radius 9, 1px `accent` border, `background`
+sentence (Erase's leads with the cost: `Removes every app and its data on
+<name>.`, an AVD's adding `; it starts like new`, then how), for Open URL a 36px input (radius 9, 1px `accent` border, `background`
 fill, 12.8px, placeholder `https://… or myapp://…`), an error line at 12px
 `ansi1` when there is one, and on the right 32px buttons (radius 8, 12.5px
 medium): Cancel (`raised`, 1px `input` border) and the action — Open in
@@ -93,30 +100,6 @@ action button reads `Working…` while it runs.
 
 - Agent statuses aren't shown, except as a device's driver (below): this panel
   is about devices.
-- **Drivers**: which terminal drives a device. With each simulator read, one
-  `ps -axo pid=,ppid=,time=,command=` (`time` is CPU time, `[dd-][hh:]mm:ss.ss`,
-  minutes past 59 on macOS): every `simulator-server ios --id <udid>` (Maestro
-  MCP starts one per simulator or iPhone it drives) has its parents walked, 50
-  at most and never past pid 1, until one is a live terminal's `pid` or
-  `foreground.pid` in `terminals()`. It is active when its CPU time grew since
-  the previous read (the panel keeps each server's last CPU time; a first
-  sighting isn't) and its terminal's agent, if it is one, is `working`: an idle
-  agent's server still ticks 0.01 to 0.5 s now and then. Otherwise attached.
-  This panel's Run Maestro pane (`isMaestroPane`) drives its device, active,
-  while its `foreground.argv` is still the `sh -c … maestro --device` command;
-  once it execs the shell, it drives nothing. One driver per terminal (the
-  pane wins over its own run's server); the first is the active one, then the
-  agent whose status changed last (`agents()`' `seq`). The row's tag shows the
-  first: its terminal's `program.key` (`claude`, `codex`), else its address;
-  the pane reads `maestro`. It brightens under the pointer (`hover` on `raised`,
-  `foreground` text; or the tone at `40`), the row's only tag that does. Active `working` (`working` + `1f` behind), attached with its
-  agent `blocked` likewise in `blocked`, else `muted` on `raised`. The tooltip
-  has a line per driver: `Click to focus <program name> · <space> / <tab> · <status> · driving now`
-  (or `attached, idle`) `· via Maestro MCP` (or `· this panel's Run Maestro
-  pane`). A click runs `agent.focus {terminal}` for an agent, else `pane.focus
-  {terminal}`, without the row's click; right-click opens the row's menu. Not in
-  the rail. Android via Maestro MCP is not tagged: no per-device process was
-  found to read (no emulator was running to look).
 - **Start**: the last list (kept in `localStorage`, with when it was read)
   paints at once; both platforms are read behind it.
 - **Simulators**: `xcrun simctl list devices -j`, read again whenever
@@ -165,12 +148,39 @@ action button reads `Working…` while it runs.
   `^(com\.android\.|com\.google\.android\.(apps\.nexuslauncher|gms|googlequicksearchbox)|android$)`
   or ends in `launcher`. The row shows the last dot-segment of the first id in
   `dim`, its tooltip all the full ids; nothing without an app.
-- **Order and fold**: each section is sorted by the latest of simctl's
+- **Drivers**: which terminal drives a device. With each simulator read, one
+  `ps -axo pid=,ppid=,time=,command=` (`time` is CPU time, `[dd-][hh:]mm:ss.ss`,
+  minutes past 59 on macOS): every `simulator-server ios --id <udid>` (Maestro
+  MCP starts one per simulator or iPhone it drives) has its parents walked, 50
+  at most and never past pid 1, until one is a live terminal's `pid` or
+  `foreground.pid` in `terminals()`. It is active when its CPU time grew since
+  the previous read (the panel keeps each server's last CPU time; a first
+  sighting isn't) and its terminal's agent, if it is one, is `working`: an idle
+  agent's server still ticks 0.01 to 0.5 s now and then. Otherwise attached.
+  This panel's Run Maestro pane (`isMaestroPane`) drives its device, active,
+  while its `foreground.argv` is still the `sh -c … maestro --device` command;
+  once it execs the shell, it drives nothing. One driver per terminal (the
+  pane wins over its own run's server); the first is the active one, then the
+  agent whose status changed last (`agents()`' `seq`). The row's tag shows the
+  first: its terminal's `program.key` (`claude`, `codex`), else its address;
+  the pane reads `maestro`. It brightens under the pointer (`hover` on `raised`,
+  `foreground` text; or the tone at `40`), the row's only tag that does. Active `working` (`working` + `1f` behind), attached with its
+  agent `blocked` likewise in `blocked`, else `muted` on `raised`. The tooltip
+  has a line per driver: `Click to focus <program name> · <space> / <tab> · <status> · driving now`
+  (or `attached, idle`) `· via Maestro MCP` (or `· this panel's Run Maestro
+  pane`). A click runs `agent.focus {terminal}` for an agent, else `pane.focus
+  {terminal}`, without the row's click; right-click opens the row's menu. Not in
+  the rail. Android via Maestro MCP is not tagged: no per-device process was
+  found to read (no emulator was running to look).
+- **Order and fold**: each section puts booted devices (and those with a
+  phase under way) first, then sorts by the latest of simctl's
   `lastBootedAt` and the device's last use (shared `devices.used`: this
   panel's last action on it, or the read that first saw it on after it was
   off, booting or offline, wherever it was started; a complete read drops the
-  entries of its platform's devices that are gone); it shows the three most recent plus every device that isn't
-  off or has a phase under way. Show all / Show fewer and the header's fold are
+  entries of its platform's devices that are gone); it shows every device that isn't
+  off or has a phase under way, plus the three most recent off ones. When every section unfolded fits the list's
+  height (a header 32px with its margin, a row 26px, a closed section only its
+  header), all rows show and no fold row does. Show all / Show fewer and the header's fold are
   remembered per section title in `localStorage`.
 - **Phases**: Boot and Shut down put the device in the shared
   `devices.pending` (`booting` / `stopping`, with the time, and an AVD's name)
@@ -184,10 +194,20 @@ action button reads `Working…` while it runs.
   An AVD booting or erasing for over 10 s whose emulator `pgrep -f -- "-avd
   <name>( |$)"` no longer finds ends at once with `Couldn't boot <name>` (or
   erase) and the last non-empty line of its log, else `emulator exited`.
-- **Click a row**: it becomes `selected`. Off and bootable (a simulator, a
-  known AVD): Boot. A booted simulator: `open -a Simulator`. Anything else:
-  nothing (an emulator window has no app to activate).
-- The row's icons are always shown, dim until hovered; **More** and **right-click** open the menu
+- **Click a row**: it becomes `selected`. A booted simulator: `open -a Simulator`.
+  Anything else: nothing. A click never boots; the Boot icon does (an emulator
+  window has no app to activate). In the rail, which has no icons, a click
+  boots an off simulator or AVD.
+- **Keys**, once a row or the list was clicked (the panel's root tracks a focus
+  handle): up / down move the selection through the shown rows of every open
+  section, top to bottom, wrapping (with none, or one no longer shown, down
+  takes the first, up the last); Enter does the row click (not the rail's
+  boot); space does what the row's power icon does: boots an off simulator or AVD,
+  shuts down a booted one, or cancels its boot; nothing in another phase; `s` takes a screenshot where the row offers one; `m` opens
+  the menu; Escape clears the selection. Only whole keystrokes, so `cmd-m`
+  passes through; other keys propagate.
+- The row's icons are always shown, dim until hovered, each with its label as a
+  tooltip; **More** and **right-click** open the menu
   (up, down, enter, esc work).
 - **Actions**:
   - **Boot**: simulator `xcrun simctl boot <udid>` (exit 149, already booted,
@@ -246,6 +266,7 @@ action button reads `Working…` while it runs.
   - **Run *flow* again**: right under Run Maestro flow… when the tab's folder
     (`maestroCwd()`) has a last flow; `openMenu` reads it, so the popup's
     height counts the row. Runs it at once with its remembered variables.
+    Not offered when `maestro` isn't installed.
   - **Erase…**: the dialog; Enter or Erase runs it. Simulator: `xcrun simctl
     shutdown` (failure ignored), then `xcrun simctl erase <udid>`; toasts
     `Erased <name>`. AVD: `adb devices -l` and the emulators' names are read
@@ -274,9 +295,9 @@ action button reads `Working…` while it runs.
 - `mods/devices/`, `mod.json` `{ "place": "none", "title": "Devices" }`: it docks
   nowhere by itself.
 - `main.js`: one `View` with four roles by `props().role`: none, the panel;
-  `"menu"`, the popup (`openOverlay({ mod: "devices", kind: "popup", width: 210,
+  `"menu"`, the popup (`openOverlay({ mod: "devices", kind: "popup", width: 250,
   height, props: { role: "menu", device, cwd, lastFlow } })`); `"url"`, `"erase"` and
-  `"maestro"`, dialogs (`kind: "dialog", width: 420, height: 200 | 190, props:
+  `"maestro"`, dialogs (`kind: "dialog", width: 420, height: 200 | 212, props:
   { role, device }`; Maestro adds `cwd, path, flows`, 230 high without flows,
   else `78 + (filter ? 46 : 0) + min(flows + 1, 8) × 30 + 118`, at most 482).
 - `devices.js`, no herdr import: parsing (`parseSimctl` with `detail` and
@@ -285,10 +306,10 @@ action button reads `Working…` while it runs.
   `androidDevices`, `parseAvdIni`, `avdApi`, `phoneLink`), the row model `{
   kind: "sim" | "ios" | "avd" | "phone", id, name, state, detail, lastUsed?, serial?,
   avd? }`, `deviceKey` (an AVD by name, so its key survives its serial),
-  `sortRecent`, `updateUsed`, `foldRows`, `settlePending`, `launchStep`,
+  `sortRecent`, `updateUsed`, `foldRows`, `fitsUnfolded`, `settlePending`, `launchStep`,
   `phaseOf`, `glyphOf`,
-  `actionsFor` (the menu), `hoverActions` (at most three), `primaryAction` (the
-  row click), `stepsFor` (the argv of every action), `footerText`,
+  `actionsFor` (the menu), `dividerBefore` and `menuDividers` (its sections), `hoverActions` (at most three), `primaryAction` (the
+  row click), `toggleAction` (space), `stepSelection` (up / down), `stepsFor` (the argv of every action), `footerText`,
   `toolCandidates`, `stillMissing`, `execFailure`, `rejectionLine`,
   `errorLine`, `emulatorLogPath`, `avdProcessPattern`, `lastLine`,
   `screenshotPath`, `validUrl`, `maestroArgv`, `parseVars`, `maestroPaneName`, `isMaestroPane`, `flowsDefault`, `findFlowsArgv`,
@@ -402,22 +423,29 @@ action button reads `Working…` while it runs.
   exec rejections (missing, timed out, other) and the minute a missing tool is
   remembered, error lines, screenshot paths with milliseconds, the emulator
   log path and pgrep pattern, the launch step (wait, check, gone, done, kill,
-  late), recency order (the two booted simulators first in the captured list)
+  late), recency order (booted and pending first; the two booted simulators first in the captured list)
   and recents from devices that came on, with gone ones dropped, the fold
-  (three recent plus running and pending), phases settling (an AVD only after boot_completed, three minutes at
-  most), glyphs, hover icons, the row click, the footer, the menu per row, and
+  (running and pending plus the three most recent off ones; unfolded when all fit), phases settling (an AVD only after boot_completed, three minutes at
+  most; a boot cancelled into stopping), glyphs, hover icons (Shut down while booting), the row click, the keys (up / down, space), the footer, the menu per row with its key hints, and
   the app lists (iOS launchctl, Android dumpsys with its fallback and hidden
   packages) and segment, the menu's app items, the Maestro flow rows (sorted,
   nested folders, config.yaml dropped at the top only, .yml, paths outside the
   folder ignored), Run *flow* again, the variables' parsing, the Maestro
   argv (variables as `-e` words after the id and path), which terminal is a
-  device's Maestro pane, and every action's argv (the URL quoted for `adb shell`, erase refusing a folder
+  device's Maestro pane, the drivers (a hand-written `ps` listing: CPU times,
+  a server's terminal four parents up, a walk stopping at pid 1, active from
+  CPU growth only while its agent works, the Maestro pane driving during its
+  run and not after, the pane winning over its own server, the first of two),
+  and every action's argv (the URL quoted for `adb shell`, erase refusing a folder
   that isn't an absolute `*.avd`).
 - `herdr-app check ~/.config/herdr-app/mods/devices` passes and `herdr-app
   status` shows `"errors": []` with the panel open.
 - The panel shows `iOS <version>` and `Android` headers with counts, booted rows
   bright with a dot on the icon, off rows dim, API levels beside Android names,
   and the footer.
+- A simulator held by an idle agent's Maestro MCP shows that agent's tab name
+  as a muted tag after the app tag, and `herdr-app do agent.focus --terminal
+  <its terminal>` (what the tag's click runs) focuses that agent.
 - On a throwaway simulator (`xcrun simctl create`): `xcrun simctl boot` and
   `shutdown` in a terminal flip its glyph within about a second; clicking it
   boots it with `booting…` and a spinning ring until it's on; Shut down shows

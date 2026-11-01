@@ -235,6 +235,14 @@ test("Run <flow> again: under Run Maestro flow when the folder has a last flow",
   assert.ok(names({ kind: "ios", id: "I", state: "on" }, { lastFlow: "/p/a.yaml" }).includes("maestroAgain"));
 });
 
+test("menu key hints: space on Boot and Shut down, S on Screenshot", () => {
+  const hints = (d) => D.actionsFor(d).filter((a) => a.hint).map((a) => [a.action, a.hint]);
+  assert.deepEqual(D.actionsFor({ kind: "sim", id: "U", state: "on" })[0], { action: "shutdown", label: "Shut down", icon: "power", hint: "space" });
+  assert.deepEqual(hints({ kind: "sim", id: "U", state: "on" }), [["shutdown", "space"], ["screenshot", "S"]]);
+  assert.deepEqual(D.actionsFor({ kind: "avd", id: "a", avd: "a", state: "off" })[0], { action: "boot", label: "Boot", icon: "play", hint: "space" });
+  assert.deepEqual(D.actionsFor({ kind: "phone", id: "R5", serial: "R5", state: "on" }).find((a) => a.action === "screenshot"), { action: "screenshot", label: "Screenshot", icon: "camera", hint: "S" });
+});
+
 test("maestro argv passes the device, the path and the variables as positional arguments", () => {
   const argv = D.maestroArgv({ id: "UDID-1" }, "/p/.maestro dir/$x");
   assert.deepEqual(argv, ["sh", "-c", argv[2], "sh", "UDID-1", "/p/.maestro dir/$x"]);
@@ -265,6 +273,78 @@ test("maestro pane: the device's, by name or by its maestro argv", () => {
   assert.ok(!D.isMaestroPane({ address: "t1", name: "maestro · iPhone 17", state: "finished" }, d));
   assert.ok(!D.isMaestroPane({ address: "t1" }, d));
   assert.ok(!D.isMaestroPane(null, d));
+});
+
+const UDID_A = "0D1C2B3A-0000-4000-8000-00000000000A", UDID_B = "0D1C2B3A-0000-4000-8000-00000000000B";
+const psRows = () => D.parsePs(fixture("ps-maestro.txt"));
+// t1: zsh 610 running claude 640; t2: zsh 720 running claude 730.
+const terms = [{ address: "t1", state: "live", pid: 610, foreground: { pid: 640 } }, { address: "t2", state: "live", pid: 720, foreground: { pid: 730 } }];
+
+test("ps: pid, parent, CPU seconds and the whole command", () => {
+  const rows = psRows();
+  assert.equal(rows.length, 15);
+  assert.deepEqual(rows[0], { pid: 1, ppid: 0, cpu: 197 * 60 + 53.15, command: "/sbin/launchd" });
+  assert.equal(rows.find((r) => r.pid === 660).command, "/usr/bin/java --enable-native-access=ALL-UNNAMED -classpath /opt/homebrew/Cellar/maestro/2.12.0/libexec/lib/* maestro.cli.AppKt mcp");
+  assert.equal(D.parsePs("  5 1 1-02:00:01.50 x")[0].cpu, 86400 + 7201.5);
+  assert.deepEqual(D.parsePs("\nnot ps\n"), []);
+});
+
+test("drivers: each simulator-server's UDID and the terminal it runs under", () => {
+  const { drivers, cpu } = D.driversFrom(psRows(), terms, {});
+  // 671 -> java 660 -> sh 655 -> claude 640 -> zsh 610 (t1's pid): four hops, by its pid alone too.
+  assert.deepEqual(drivers, [
+    { udid: UDID_A, address: "t1", pid: 671, cpu: 38.31, active: false },
+    { udid: UDID_A, address: "t2", pid: 752, cpu: 2.5, active: false },
+  ]);
+  assert.deepEqual(D.driversFrom(psRows(), [{ address: "t1", pid: 610 }], {}).drivers.map((x) => x.address), ["t1"]);
+  // 815's parents end at launchd (pid 1) without a terminal: no driver, but its CPU is kept.
+  assert.ok(!drivers.some((x) => x.udid === UDID_B));
+  assert.deepEqual(cpu, { 671: 38.31, 752: 2.5, 815: 1.2 });
+  assert.deepEqual(D.driversFrom(psRows(), [{ address: "t9", pid: 610, state: "finished" }], {}).drivers, []);
+});
+
+test("drivers: active when its CPU time grew since the last read", () => {
+  const { drivers } = D.driversFrom(psRows(), terms, { 671: 38.31, 752: 1.9, 999: 5 });
+  assert.deepEqual(drivers.map((x) => [x.pid, x.active]), [[671, false], [752, true]]);
+});
+
+test("Maestro pane: driving while its run is the foreground, not once it's the shell", () => {
+  const d = { kind: "sim", id: UDID_A, name: "iPhone 17 Pro" }, argv = D.maestroArgv(d, "/p/.maestro");
+  const pane = (fg) => ({ address: "t5", state: "live", argv, foreground: { argv: fg, pid: 1 } });
+  assert.ok(D.maestroRunning(pane(argv), d));
+  assert.ok(!D.maestroRunning(pane(["/bin/zsh", "-l"]), d));
+  assert.ok(!D.maestroRunning(pane(argv), { ...d, id: UDID_B }));
+  assert.deepEqual(D.deviceDrivers(d, [], [pane(argv)], []), [{ address: "t5", via: "pane", active: true }]);
+  assert.deepEqual(D.deviceDrivers(d, [], [pane(["/bin/zsh", "-l"])], []), []);
+  // Its own run's simulator-server is the same terminal: one driver, the pane.
+  assert.deepEqual(D.deviceDrivers(d, [{ udid: UDID_A, address: "t5", active: false }], [pane(argv)], []), [{ address: "t5", via: "pane", active: true }]);
+});
+
+test("drivers of a device: active first, then the agent that changed last", () => {
+  const d = { kind: "sim", id: UDID_A }, agents = [{ address: "t1", seq: 4 }, { address: "t2", seq: 9 }];
+  const both = (a1, a2) => [{ udid: UDID_A, address: "t1", active: a1 }, { udid: UDID_A, address: "t2", active: a2 }, { udid: UDID_B, address: "t3", active: true }];
+  assert.deepEqual(D.deviceDrivers(d, both(true, false), [], agents).map((x) => x.address), ["t1", "t2"]);
+  assert.deepEqual(D.deviceDrivers(d, both(false, false), [], agents).map((x) => x.address), ["t2", "t1"]);
+  assert.deepEqual(D.deviceDrivers({ kind: "sim", id: "OTHER" }, both(true, true), [], agents), []);
+});
+
+test("driver tag: the program's key, where it runs in the tip, maestro for the pane", () => {
+  const mcp = { via: "mcp", address: "t1", active: false };
+  const tag = D.driverTag(mcp, { address: "t1", tab_name: "3", space_name: "budget", status: "idle", program: { key: "claude", name: "Claude Code" } });
+  assert.equal(tag.label, "claude");
+  assert.equal(tag.tip, "Click to focus Claude Code · budget / 3 · idle · attached, idle · via Maestro MCP");
+  assert.equal(D.driverTag(mcp, undefined, { address: "t1", program: { key: "codex", name: "Codex" } }).label, "codex");
+  assert.equal(D.driverTag(mcp, undefined, { address: "t1" }).label, "t1");
+  assert.equal(D.driverTag({ via: "pane", address: "t2", active: true }, undefined, undefined).label, "maestro");
+});
+
+test("drivers of a device: an agent's server is active only while the agent is working", () => {
+  const d = { kind: "sim", id: UDID_A }, mcp = [{ udid: UDID_A, address: "t1", active: true }, { udid: UDID_A, address: "t2", active: true }];
+  const active = (status) => D.deviceDrivers(d, mcp, [], [{ address: "t1", seq: 1, status }]).map((x) => [x.address, x.active]);
+  // t2 isn't an agent: its CPU alone tells.
+  assert.deepEqual(active("working"), [["t1", true], ["t2", true]]);
+  assert.deepEqual(active("idle"), [["t2", true], ["t1", false]]);
+  assert.deepEqual(active("blocked"), [["t2", true], ["t1", false]]);
 });
 
 test("flows default: the .maestro folder when there is one, else the folder", () => {
@@ -328,6 +408,12 @@ test("recents: lastBootedAt or this mod's own log, newest first, ties keep order
   assert.deepEqual(real.slice(0, 2).map((d) => d.name), ["iPhone 17 Pro B", "iPhone 17 Pro"]);
 });
 
+test("recents: booted (or pending) first, then by recency", () => {
+  const list = [sim("old-on", "on", 100), sim("new-off", "off", 900), sim("new-boot", "off", 800), sim("older-off", "off", 50)];
+  assert.deepEqual(D.sortRecent(list).map((d) => d.name), ["old-on", "new-off", "new-boot", "older-off"]);
+  assert.deepEqual(D.sortRecent(list, {}, { "sim:new-boot": { phase: "booting", at: 0 } }).map((d) => d.name), ["new-boot", "old-on", "new-off", "older-off"]);
+});
+
 test("recents: a device that came on outside the panel counts; gone ones drop out", () => {
   const used = { "sim:a": 1, "sim:gone": 2, "avd:p": 3 };
   // b booted from a terminal (via "booting"); c was already on; a stayed off.
@@ -341,7 +427,7 @@ test("recents: a device that came on outside the panel counts; gone ones drop ou
   assert.deepEqual(D.updateUsed({ "sim:a": 1, "phone:R5": 2 }, "android", [off], [on], 60, true), { "sim:a": 1, "avd:p": 60 });
 });
 
-test("fold: three most recent plus anything not off; all shows everything", () => {
+test("fold: anything not off plus the three most recent off ones; all shows everything", () => {
   const sorted = [sim("a", "off"), sim("b", "off"), sim("c", "off"), sim("d", "off"), sim("e", "on"), sim("f", "off"), sim("g", "booting")];
   const folded = D.foldRows(sorted);
   assert.deepEqual(folded.shown.map((d) => d.name), ["a", "b", "c", "e", "g"]);
@@ -349,6 +435,23 @@ test("fold: three most recent plus anything not off; all shows everything", () =
   assert.deepEqual(D.foldRows(sorted, { pending: { "sim:f": { phase: "booting", at: 0 } } }).shown.map((d) => d.name), ["a", "b", "c", "e", "f", "g"]);
   assert.deepEqual(D.foldRows(sorted, { all: true }), { shown: sorted, hidden: 0 });
   assert.equal(D.foldRows(sorted.slice(0, 3)).hidden, 0);
+  // Booted rows sort first: they don't use up the three.
+  const booted = [sim("e", "on"), sim("g", "booting"), sim("h", "on"), sim("a", "off"), sim("b", "off"), sim("c", "off"), sim("d", "off"), sim("f", "off")];
+  assert.deepEqual(D.foldRows(booted).shown.map((d) => d.name), ["e", "g", "h", "a", "b", "c"]);
+  assert.equal(D.foldRows(booted).hidden, 2);
+  assert.deepEqual(D.foldRows(booted, { pending: { "sim:a": { phase: "booting", at: 0 } } }).shown.map((d) => d.name), ["e", "g", "h", "a", "b", "c", "d"]);
+});
+
+test("unfolded when every section fits the list's height", () => {
+  // 32 + 3 * 26 + 32 + 2 * 26 = 194
+  const secs = [{ count: 3, closed: false }, { count: 2, closed: false }];
+  assert.equal(D.fitsUnfolded(secs, 194), true);
+  assert.equal(D.fitsUnfolded(secs, 193), false);
+  // A closed section is its header: 32 + 32 + 2 * 26 = 116
+  assert.equal(D.fitsUnfolded([{ count: 3, closed: true }, { count: 2, closed: false }], 116), true);
+  // Before the first size: fold as usual.
+  assert.equal(D.fitsUnfolded([], 0), false);
+  assert.equal(D.fitsUnfolded(secs, -80), false);
 });
 
 test("phases: booting until booted (an AVD until boot_completed), stopping until off, three minutes at most", () => {
@@ -359,6 +462,14 @@ test("phases: booting until booted (an AVD until boot_completed), stopping until
   const later = [sim("a", "on"), sim("b", "off"), devices[2], devices[3]];
   assert.deepEqual(Object.keys(D.settlePending(pending, later, now)), ["avd:p"]);
   assert.deepEqual(Object.keys(D.settlePending(pending, later, now, new Set(["avd:p"]))), []);
+  // A boot cancelled by Shut down: the entry turns stopping and ends once the device is off.
+  const cancelled = { "sim:a": { phase: "stopping", at: now - 500 } };
+  assert.deepEqual(Object.keys(D.settlePending(cancelled, [sim("a", "booting")], now)), ["sim:a"]);
+  assert.deepEqual(Object.keys(D.settlePending(cancelled, [sim("a", "on")], now)), ["sim:a"]);
+  assert.deepEqual(D.settlePending(cancelled, [sim("a", "off")], now), {});
+  const avdCancelled = { "avd:p": { phase: "stopping", at: now - 500, avd: "p" } };
+  assert.deepEqual(Object.keys(D.settlePending(avdCancelled, [{ kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "p", name: "p", state: "offline" }], now)), ["avd:p"]);
+  assert.deepEqual(D.settlePending(avdCancelled, [{ kind: "avd", id: "p", avd: "p", name: "p", state: "off" }], now), {});
   assert.equal(D.phaseOf(sim("a", "off"), pending), "booting");
   assert.equal(D.phaseOf(sim("z", "booting")), "booting");
   assert.equal(D.phaseOf(sim("z", "shutting down")), "stopping");
@@ -400,25 +511,67 @@ test("hover icons and the row click", () => {
   const names = (d, phase) => D.hoverActions(d, phase).map((a) => a.action);
   assert.deepEqual(names(sim("a", "on")), ["shutdown", "screenshot", "more"]);
   assert.deepEqual(names(sim("a", "off")), ["boot", "more"]);
-  assert.deepEqual(names(sim("a", "off"), "booting"), ["more"]);
+  // A boot under way can be cancelled: a simulator always, an AVD once adb has its serial.
+  assert.deepEqual(names(sim("a", "off"), "booting"), ["shutdown", "more"]);
+  assert.deepEqual(names(sim("a", "booting"), "booting"), ["shutdown", "more"]);
+  assert.deepEqual(names({ kind: "avd", id: "p", avd: "p", state: "off" }, "booting"), ["more"]);
+  assert.deepEqual(names({ kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "p", state: "offline" }, "booting"), ["shutdown", "more"]);
+  assert.deepEqual(names(sim("a", "on"), "stopping"), ["screenshot", "more"]);
+  assert.deepEqual(names(sim("a", "off"), "stopping"), ["more"]);
+  assert.deepEqual(names(sim("a", "off"), "erasing"), ["more"]);
   assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screenshot", "more"]);
-  assert.equal(D.primaryAction(sim("a", "off")), "boot");
+  assert.equal(D.primaryAction(sim("a", "off")), null);
   assert.equal(D.primaryAction(sim("a", "on")), "focus");
   assert.equal(D.primaryAction(sim("a", "off"), "booting"), null);
-  assert.equal(D.primaryAction({ kind: "avd", id: "p", avd: "p", state: "off" }), "boot");
+  assert.equal(D.primaryAction({ kind: "avd", id: "p", avd: "p", state: "off" }), null);
   assert.equal(D.primaryAction({ kind: "avd", id: "e", serial: "e", avd: "p", state: "on" }), null);
   assert.equal(D.primaryAction({ kind: "phone", id: "R5", serial: "R5", state: "on" }), null);
   assert.equal(D.primaryAction({ kind: "ios", id: "U", state: "on" }), null);
   assert.deepEqual(names({ kind: "ios", id: "U", state: "on" }), ["more"]);
+  // The rail has no hover icons: there a click boots what can boot.
+  assert.equal(D.primaryAction(sim("a", "off"), null, { rail: true }), "boot");
+  assert.equal(D.primaryAction(sim("a", "off"), null), null);
+  assert.equal(D.primaryAction({ kind: "avd", id: "p", avd: "p", state: "off" }, null, { rail: true }), "boot");
+  assert.equal(D.primaryAction(sim("a", "off"), "booting", { rail: true }), null);
+  assert.equal(D.primaryAction(sim("a", "on"), null, { rail: true }), "focus");
+  assert.equal(D.primaryAction({ kind: "phone", id: "R5", serial: "R5", state: "offline" }, null, { rail: true }), null);
+});
+
+test("keys: up / down through the visible rows, space boots or shuts down", () => {
+  const keys = ["sim:a", "sim:b", "avd:p"];
+  assert.equal(D.stepSelection(keys, null, 1), "sim:a");
+  assert.equal(D.stepSelection(keys, null, -1), "avd:p");
+  assert.equal(D.stepSelection(keys, "sim:a", 1), "sim:b");
+  assert.equal(D.stepSelection(keys, "avd:p", 1), "sim:a");
+  assert.equal(D.stepSelection(keys, "sim:a", -1), "avd:p");
+  // A selection no longer shown starts over.
+  assert.equal(D.stepSelection(keys, "sim:gone", 1), "sim:a");
+  assert.equal(D.stepSelection(keys, "sim:gone", -1), "avd:p");
+  assert.equal(D.stepSelection([], "sim:a", 1), null);
+  assert.equal(D.stepSelection([], null, -1), null);
+  assert.equal(D.toggleAction(sim("a", "off"), null), "boot");
+  assert.equal(D.toggleAction(sim("a", "on"), null), "shutdown");
+  assert.equal(D.toggleAction({ kind: "avd", id: "p", avd: "p", state: "off" }, null), "boot");
+  assert.equal(D.toggleAction({ kind: "avd", id: "e", serial: "e", avd: null, state: "off" }, null), null);
+  assert.equal(D.toggleAction({ kind: "avd", id: "e", serial: "e", avd: null, state: "on" }, null), "shutdown");
+  assert.equal(D.toggleAction({ kind: "phone", id: "R5", serial: "R5", state: "on" }, null), null);
+  assert.equal(D.toggleAction({ kind: "ios", id: "U", state: "on" }, null), null);
+  assert.equal(D.toggleAction({ kind: "phone", id: "R5", serial: "R5", state: "offline" }, null), null);
+  // Not during a phase, not even to cancel a boot.
+  assert.equal(D.toggleAction(sim("a", "off"), "booting"), "shutdown"); // cancels the boot, like the icon
+  assert.equal(D.toggleAction({ kind: "avd", id: "p", avd: "p", state: "off" }, "booting"), null);
+  assert.equal(D.toggleAction(sim("a", "on"), "stopping"), null);
 });
 
 test("footer", () => {
   const android = [{ kind: "avd" }, { kind: "phone" }], sims = (n) => Array.from({ length: n }, () => ({ kind: "sim" }));
-  assert.equal(D.footerText(sims(5), android, 1000, 4000), "5 simulators · 1 emulator · 1 device · refreshed 0s ago");
+  assert.equal(D.footerText(sims(5), android, 1000, 4000), "5 simulators · 1 emulator · 1 device");
   // iOS phones count as devices next to the Android ones.
-  assert.equal(D.footerText([...sims(2), { kind: "ios" }], android, 1000, 1000), "2 simulators · 1 emulator · 2 devices · refreshed 0s ago");
+  assert.equal(D.footerText([...sims(2), { kind: "ios" }], android, 1000, 1000), "2 simulators · 1 emulator · 2 devices");
   assert.equal(D.footerText([{ kind: "ios" }], [], 0, 5), "1 device");
-  assert.equal(D.footerText(sims(1), [], 1000, 1000 + 25000), "1 simulator · refreshed 20s ago");
+  // Only a stalled read, a minute or more old, is worth showing.
+  assert.equal(D.footerText(sims(1), [], 1000, 1000 + 59999), "1 simulator");
+  assert.equal(D.footerText(sims(1), [], 1000, 1000 + 60000), "1 simulator · refreshed 1m ago");
   assert.equal(D.footerText([], [], 0, 5), "No devices");
   assert.match(D.footerText([], [], 1, 1 + 125000), /^No devices · refreshed 2m ago$/);
 });
@@ -431,73 +584,10 @@ test("row icon by name", () => {
   assert.deepEqual(icons("Apple TV 4K (3rd generation)", "Television_1080p_API_34", "Apple Vision Pro"), ["tv", "tv", "glasses"]);
 });
 
-const UDID_A = "0D1C2B3A-0000-4000-8000-00000000000A", UDID_B = "0D1C2B3A-0000-4000-8000-00000000000B";
-const psRows = () => D.parsePs(fixture("ps-maestro.txt"));
-const terms = [{ address: "t1", state: "live", pid: 610, foreground: { pid: 640 } }, { address: "t2", state: "live", pid: 720, foreground: { pid: 730 } }];
-
-test("ps: pid, parent, CPU seconds and the whole command", () => {
-  const rows = psRows();
-  assert.equal(rows.length, 15);
-  assert.deepEqual(rows[0], { pid: 1, ppid: 0, cpu: 197 * 60 + 53.15, command: "/sbin/launchd" });
-  assert.equal(rows.find((r) => r.pid === 660).command, "/usr/bin/java --enable-native-access=ALL-UNNAMED -classpath /opt/homebrew/Cellar/maestro/2.12.0/libexec/lib/* maestro.cli.AppKt mcp");
-  assert.equal(D.parsePs("  5 1 1-02:00:01.50 x")[0].cpu, 86400 + 7201.5);
-  assert.deepEqual(D.parsePs("\nnot ps\n"), []);
-});
-
-test("drivers: each simulator-server's UDID and the terminal it runs under", () => {
-  const { drivers, cpu } = D.driversFrom(psRows(), terms, {});
-  // 671 -> java 660 -> sh 655 -> claude 640 -> zsh 610 (t1's pid): four hops, by its pid alone too.
-  assert.deepEqual(drivers, [
-    { udid: UDID_A, address: "t1", pid: 671, cpu: 38.31, active: false },
-    { udid: UDID_A, address: "t2", pid: 752, cpu: 2.5, active: false },
-  ]);
-  assert.deepEqual(D.driversFrom(psRows(), [{ address: "t1", pid: 610 }], {}).drivers.map((x) => x.address), ["t1"]);
-  // 815's parents end at launchd (pid 1) without a terminal: no driver, but its CPU is kept.
-  assert.ok(!drivers.some((x) => x.udid === UDID_B));
-  assert.deepEqual(cpu, { 671: 38.31, 752: 2.5, 815: 1.2 });
-  assert.deepEqual(D.driversFrom(psRows(), [{ address: "t9", pid: 610, state: "finished" }], {}).drivers, []);
-});
-
-test("drivers: active when its CPU time grew since the last read", () => {
-  const { drivers } = D.driversFrom(psRows(), terms, { 671: 38.31, 752: 1.9, 999: 5 });
-  assert.deepEqual(drivers.map((x) => [x.pid, x.active]), [[671, false], [752, true]]);
-});
-
-test("Maestro pane: driving while its run is the foreground, not once it's the shell", () => {
-  const d = { kind: "sim", id: UDID_A, name: "iPhone 17 Pro" }, argv = D.maestroArgv(d, "/p/.maestro");
-  const pane = (fg) => ({ address: "t5", state: "live", argv, foreground: { argv: fg, pid: 1 } });
-  assert.ok(D.maestroRunning(pane(argv), d));
-  assert.ok(!D.maestroRunning(pane(["/bin/zsh", "-l"]), d));
-  assert.ok(!D.maestroRunning(pane(argv), { ...d, id: UDID_B }));
-  assert.deepEqual(D.deviceDrivers(d, [], [pane(argv)], []), [{ address: "t5", via: "pane", active: true }]);
-  assert.deepEqual(D.deviceDrivers(d, [], [pane(["/bin/zsh", "-l"])], []), []);
-  // Its own run's simulator-server is the same terminal: one driver, the pane.
-  assert.deepEqual(D.deviceDrivers(d, [{ udid: UDID_A, address: "t5", active: false }], [pane(argv)], []), [{ address: "t5", via: "pane", active: true }]);
-});
-
-test("drivers of a device: active first, then the agent that changed last", () => {
-  const d = { kind: "sim", id: UDID_A }, agents = [{ address: "t1", seq: 4 }, { address: "t2", seq: 9 }];
-  const both = (a1, a2) => [{ udid: UDID_A, address: "t1", active: a1 }, { udid: UDID_A, address: "t2", active: a2 }, { udid: UDID_B, address: "t3", active: true }];
-  assert.deepEqual(D.deviceDrivers(d, both(true, false), [], agents).map((x) => x.address), ["t1", "t2"]);
-  assert.deepEqual(D.deviceDrivers(d, both(false, false), [], agents).map((x) => x.address), ["t2", "t1"]);
-  assert.deepEqual(D.deviceDrivers({ kind: "sim", id: "OTHER" }, both(true, true), [], agents), []);
-});
-
-test("drivers of a device: an agent's server is active only while the agent is working", () => {
-  const d = { kind: "sim", id: UDID_A }, mcp = [{ udid: UDID_A, address: "t1", active: true }, { udid: UDID_A, address: "t2", active: true }];
-  const active = (status) => D.deviceDrivers(d, mcp, [], [{ address: "t1", seq: 1, status }]).map((x) => [x.address, x.active]);
-  // t2 isn't an agent: its CPU alone tells.
-  assert.deepEqual(active("working"), [["t1", true], ["t2", true]]);
-  assert.deepEqual(active("idle"), [["t2", true], ["t1", false]]);
-  assert.deepEqual(active("blocked"), [["t2", true], ["t1", false]]);
-});
-
-test("driver tag: the program's key, where it runs in the tip, maestro for the pane", () => {
-  const mcp = { via: "mcp", address: "t1", active: false };
-  const tag = D.driverTag(mcp, { address: "t1", tab_name: "3", space_name: "budget", status: "idle", program: { key: "claude", name: "Claude Code" } });
-  assert.equal(tag.label, "claude");
-  assert.equal(tag.tip, "Click to focus Claude Code · budget / 3 · idle · attached, idle · via Maestro MCP");
-  assert.equal(D.driverTag(mcp, undefined, { address: "t1", program: { key: "codex", name: "Codex" } }).label, "codex");
-  assert.equal(D.driverTag(mcp, undefined, { address: "t1" }).label, "t1");
-  assert.equal(D.driverTag({ via: "pane", address: "t2", active: true }, undefined, undefined).label, "maestro");
+test("menu dividers fall where the group changes", () => {
+  const items = D.actionsFor({ kind: "sim", id: "U", state: "on", apps: ["com.example.budget"] }, { lastFlow: "/p/.maestro/login.yml" });
+  assert.deepEqual(items.map((a) => a.action), ["shutdown", "screenshot", "openurl", "maestro", "maestroAgain", "copyapp", "stop", "copy", "erase"]);
+  assert.deepEqual(items.map((_a, i) => D.dividerBefore(items, i)), [false, true, false, true, false, true, false, true, true]);
+  assert.equal(D.menuDividers(items), 5);
+  assert.equal(D.menuDividers(D.actionsFor({ kind: "sim", id: "U", state: "off" })), 2);
 });
