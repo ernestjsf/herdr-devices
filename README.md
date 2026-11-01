@@ -5,7 +5,7 @@ side panel of the [Herdr](https://herdr.dev) desktop app, most recently used
 first, with the everyday actions one click away. Pick a Maestro flow from the
 right-click menu and it runs on that device in a pane below.
 
-<img src="preview.png" width="900" alt="The Devices panel: an iOS 26.1 section with two booted simulators running apps, a connected iPhone over USB, one simulator booting and one off, then a watchOS section.">
+<img src="preview.png" width="900" alt="The Devices panel: an iOS 26.1 section with two booted simulators running apps, one tagged claude and one codex for the agent driving it, a connected iPhone over USB, one simulator booting and one off, then a watchOS section.">
 
 ## What you get
 
