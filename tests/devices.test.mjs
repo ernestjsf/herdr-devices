@@ -566,7 +566,7 @@ test("keys: up / down through the visible rows, space boots or shuts down", () =
   assert.equal(D.toggleAction({ kind: "phone", id: "R5", serial: "R5", state: "on" }, null), null);
   assert.equal(D.toggleAction({ kind: "ios", id: "U", state: "on" }, null), null);
   assert.equal(D.toggleAction({ kind: "phone", id: "R5", serial: "R5", state: "offline" }, null), null);
-  // Not during a phase, not even to cancel a boot.
+  // Not during a phase, except a simulator's boot, which space cancels like the icon.
   assert.equal(D.toggleAction(sim("a", "off"), "booting"), "shutdown"); // cancels the boot, like the icon
   assert.equal(D.toggleAction({ kind: "avd", id: "p", avd: "p", state: "off" }, "booting"), null);
   assert.equal(D.toggleAction(sim("a", "on"), "stopping"), null);

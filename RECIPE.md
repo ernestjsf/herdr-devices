@@ -119,7 +119,8 @@ action button reads `Working…` while it runs.
   names becomes a space) in the section titled `<platform> <osVersionNumber>`,
   created and sorted in with the simulators'. Click does nothing; the menu has
   Open URL… (`xcrun devicectl device process launch --device <udid>
-  com.apple.mobilesafari --payload-url <url>`, Safari only) and Copy UDID.
+  com.apple.mobilesafari --payload-url <url>`, Safari only), Run Maestro
+  flow… and Copy UDID.
   No apps are asked for.
 - **Android**: every 5 s, after Refresh and after any action: `adb devices
   -l`, and for each running `emulator-NNNN` not named yet `adb -s <serial> emu
@@ -148,8 +149,8 @@ action button reads `Working…` while it runs.
   `topResumedActivity=ActivityRecord{... <package>/...}` (older APIs:
   `mResumedActivity`), hidden when it matches
   `^(com\.android\.|com\.google\.android\.(apps\.nexuslauncher|gms|googlequicksearchbox)|android$)`
-  or ends in `launcher`. The row shows the last dot-segment of the first id in
-  `dim`, its tooltip all the full ids; nothing without an app.
+  or ends in `launcher`. The row shows the last dot-segment of the first id as the
+  app tag, its tooltip all the full ids; nothing without an app.
 - **Drivers**: which terminal drives a device. With each simulator read, one
   `ps -axo pid=,ppid=,time=,command=` (`time` is CPU time, `[dd-][hh:]mm:ss.ss`,
   minutes past 59 on macOS): every `simulator-server ios --id <udid>` (Maestro
@@ -298,7 +299,7 @@ action button reads `Working…` while it runs.
 
 - `mods/devices/`, `mod.json` `{ "place": "none", "title": "Devices" }`: it docks
   nowhere by itself.
-- `main.js`: one `View` with four roles by `props().role`: none, the panel;
+- `main.js`: one `View` with five roles by `props().role`: none, the panel;
   `"menu"`, the popup (`openOverlay({ mod: "devices", kind: "popup", width: 250,
   height, props: { role: "menu", device, cwd, lastFlow } })`); `"url"`, `"erase"` and
   `"maestro"`, dialogs (`kind: "dialog", width: 420, height: 200 | 212, props:
@@ -345,7 +346,8 @@ action button reads `Working…` while it runs.
   own; `Get Xcode` and `Set ANDROID_HOME` open developer.apple.com /
   developer.android.com pages with `cx.open_url`.
 - Icons in `icons/` after Lucide (ISC notice there): devices, refresh, play,
-  power, camera, copy, link, trash, more, and a filled triangle. Herdr's own
+  power, camera, copy, link, trash, more, flask, square, smartphone, tablet,
+  watch, tv, glasses, and a filled triangle. Herdr's own
   `spinner.svg` and Files' chevrons.
 - The top-bar button lives in clones of Herdr's `tabs` mod and `main` layout,
   as git-graph's `docs/top-bar.md` describes: `"devices"` in the enabled panels,
@@ -447,11 +449,11 @@ action button reads `Working…` while it runs.
 - The panel shows `iOS <version>` and `Android` headers with counts, booted rows
   bright with a dot on the icon, off rows dim, API levels beside Android names,
   and the footer.
-- A simulator held by an idle agent's Maestro MCP shows that agent's tab name
-  as a muted tag after the app tag, and `herdr-app do agent.focus --terminal
+- A simulator held by an idle agent's Maestro MCP shows that agent's program
+  (`claude`, `codex`) as a muted tag after the app tag, and `herdr-app do agent.focus --terminal
   <its terminal>` (what the tag's click runs) focuses that agent.
 - On a throwaway simulator (`xcrun simctl create`): `xcrun simctl boot` and
-  `shutdown` in a terminal flip its glyph within about a second; clicking it
+  `shutdown` in a terminal flip its glyph within about a second; its Boot icon
   boots it with `booting…` and a spinning ring until it's on; Shut down shows
   `stopping…` until it's off; Boot again succeeds; Screenshot writes a PNG to
   the Desktop; Open URL opens the URL; Erase resets it; Open URL on a shut-down

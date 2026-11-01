@@ -5,7 +5,7 @@ side panel of the [Herdr](https://herdr.dev) desktop app, most recently used
 first, with the everyday actions one click away. Pick a Maestro flow from the
 right-click menu and it runs on that device in a pane below.
 
-<img src="preview.png" width="900" alt="Left, the Devices panel: iOS simulators grouped by runtime, two booted and running apps, one booting, a connected iPhone, and an Android section with a booted emulator and a phone over USB. Right, the Run Maestro flow picker: All flows, six flows in their folders, one selected, a Variables field and Browse, Cancel and Run buttons.">
+<img src="preview.png" width="900" alt="The Devices panel: an iOS 26.1 section with two booted simulators running apps, a connected iPhone over USB, one simulator booting and one off, then a watchOS section.">
 
 ## What you get
 
@@ -31,14 +31,14 @@ Keys, once you've clicked the list: up and down select a row, Enter does its cli
 | Screenshot | `simctl io screenshot`             | `adb shell screencap`, `adb pull`                    |
 | Copy id    | UDID                               | serial, or the AVD name when off                     |
 | Open URL…  | `simctl openurl`                   | `adb shell am start -a android.intent.action.VIEW`   |
-| Run Maestro flow… | pick a flow, then a terminal pane runs `maestro --device <UDID> test <flow>` | emulators only, with the serial |
+| Run Maestro flow… | pick a flow, then a terminal pane runs `maestro --device <UDID> test <flow>` | the same, with the serial |
 | Copy app id | the running app's bundle id       | its package name                                     |
 | Stop *app* | `simctl terminate`                 | `adb shell am force-stop`                            |
 | Erase…     | `simctl erase` (factory reset)     | deletes the AVD's `snapshots/`, boots it once with `emulator -wipe-data -no-snapshot -no-window`, stops it when booted |
 
 Menu-only actions:
 
-- **Run Maestro flow…** needs a booted simulator or emulator. It lists the flows in the tab's `.maestro` folder. **All flows** runs the whole folder, any other row runs that one flow. Up, down and Enter pick, a click runs. With more than 6 flows a filter field sits on top. Browse… runs another folder. Without a `.maestro` folder it asks for a path instead. Without `maestro` on the PATH the row shows disabled with "not installed", and there is no Run again.
+- **Run Maestro flow…** needs a booted device, connected phones included. It lists the flows in the tab's `.maestro` folder. **All flows** runs the whole folder, any other row runs that one flow. Up, down and Enter pick, a click runs. With more than 6 flows a filter field sits on top. Browse… runs another folder. Without a `.maestro` folder it asks for a path instead. Without `maestro` on the PATH the row shows disabled with "not installed", and there is no Run again.
   - The flow you last ran in that folder is selected next time, and the menu offers it directly as **Run *flow* again**.
   - The Variables field takes `KEY=VALUE` words, passed as `maestro test -e`, and remembers them per flow.
   - The run opens a terminal pane below, replacing that device's previous Maestro pane, and the pane stays open as a shell. A failed run prints its debug folder, the newest under `~/.maestro/tests`.
