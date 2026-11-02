@@ -64,7 +64,7 @@ done
 
 ### Agents claim automatically
 
-Until the panel finds the plugin (or a `claim.sh` hook), it shows an "Agents don't claim devices yet" line with a **Copy install command** link, when Maestro is installed. **×** hides it for good.
+Until the panel finds the plugin (or a `claim.sh` hook), it shows an "Agents don't claim devices yet" line with **Claude Code** and **Codex** links, each copying that harness's install command, when Maestro is installed. **×** hides it for good.
 
 Claude Code:
 
@@ -74,12 +74,18 @@ claude plugin install herdr-devices --marketplace ernestjsf/herdr-devices
 
 The hook claims the device on any Maestro MCP call with a `device_id`, and denies the call with a reason when another live agent holds it. It takes over a dead agent's claim and releases its own at session end. A Maestro server installed as a plugin has a different tool prefix: adjust the matcher in `hooks/hooks.json`.
 
-Codex: clone this repo and put the same two hooks in `~/.codex/hooks.json`, with `codex` as the label and the absolute path to the script. Codex asks you to trust the hook.
+Codex:
+
+```sh
+git clone https://github.com/ernestjsf/herdr-devices ~/.codex/herdr-devices && sh ~/.codex/herdr-devices/hooks/install-codex.sh
+```
+
+The script writes `~/.codex/hooks.json` when there is none, else prints the two entries to merge into it, and never edits an existing file. Codex asks you to trust the hook: run `/hooks`. The entries it writes:
 
 ```json
 {"hooks": {
   "PreToolUse": [{"matcher": "mcp__maestro__.*", "hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}],
-  "SessionEnd": [{"hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}]
+  "SessionEnd": [{"hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 3}]}]
 }}
 ```
 

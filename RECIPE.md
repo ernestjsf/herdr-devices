@@ -202,13 +202,17 @@ action button reads `Working…` while it runs.
   reason on stderr; a dead pid is removed and claimed anew. On `SessionEnd` it removes the folders whose
   pid is the agent's. Anything else, and any failure, exits 0 (fail open).
 - **Hook hint**: under the list, above the footer, not in the rail: a `line()`
-  (`Agents don't claim devices yet · Copy install command`, then a dim `×`).
+  (`Agents don't claim devices yet · Claude Code · Codex`, then a dim `×`; `line()` takes one link or an array).
   Shown while `maestroFound()` and not `hookInstalled()` (`actions.js`, read
   once a minute, true until the first read; `hookDetected` over
   `~/.claude/plugins/installed_plugins.json` containing `"herdr-devices@`,
-  `~/.claude/settings.json` or `~/.codex/hooks.json` containing `claim.sh`; a
-  failed read is not installed) and not hidden. The link copies `claude plugin
-  install herdr-devices --marketplace ernestjsf/herdr-devices` (toast `Copied`);
+  `~/.claude/settings.json`, `~/.codex/hooks.json` or `~/.codex/config.toml`
+  containing `claim.sh`; a failed read is not installed) and not hidden. Each
+  link copies its harness's command from `INSTALL` (toast `Copied`): Claude
+  Code, `claude plugin install herdr-devices --marketplace
+  ernestjsf/herdr-devices`; Codex, a `git clone` into `~/.codex/herdr-devices`
+  then `hooks/install-codex.sh` (writes `~/.codex/hooks.json` when missing,
+  else prints the entries to merge);
   `×` sets `hintHidden` in the panel's `localStorage`. The list gives up 32px
   of height while it shows.
 - **Order and fold**: each section puts booted devices (and those with a

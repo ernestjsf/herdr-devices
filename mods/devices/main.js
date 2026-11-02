@@ -19,7 +19,10 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
-const INSTALL = "claude plugin install herdr-devices --marketplace ernestjsf/herdr-devices";
+const INSTALL = {
+  claude: "claude plugin install herdr-devices --marketplace ernestjsf/herdr-devices",
+  codex: "git clone https://github.com/ernestjsf/herdr-devices ~/.codex/herdr-devices && sh ~/.codex/herdr-devices/hooks/install-codex.sh",
+};
 
 function copy(text, cx) {
   cx.write_to_clipboard(text);
@@ -278,12 +281,13 @@ class Panel {
       .child(label);
   }
 
-  // A centered dim line with one accent link.
+  // A centered dim line with accent links (one, or an array).
   line(id, text, link, t, hide) {
+    const links = [link ?? []].flat();
     return h_flex().flex_none().flex_wrap().justify_center().gap(4).px(14).py(8).text_size(12)
       .child(div().text_color(t.dim).child(text))
-      .when(Boolean(link), (el) => el.child(div().text_color(t.dim).child("·"))
-        .child(div().id(`link-${id}`).text_color(t.accent).cursor_pointer().on_click((_e, cx) => link.go(cx)).child(link?.label ?? "")))
+      .children(links.flatMap((l, i) => [div().text_color(t.dim).child("·"),
+        div().id(i ? `link-${id}-${i}` : `link-${id}`).text_color(t.accent).cursor_pointer().on_click((_e, cx) => l.go(cx)).child(l.label)]))
       .when(Boolean(hide), (el) => el.child(div().id(`hide-${id}`).text_color(t.dim).cursor_pointer().on_click((_e, cx) => hide(cx)).child("×")));
   }
 
@@ -352,7 +356,7 @@ class Panel {
           .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { forgetAvds(); this.reloadAll(cx, true); }))
           .child(working ? svg(SPINNER).size(14).text_color(t.muted).spin(900) : svg(icon("refresh")).size(14).text_color(t.muted))))
       .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().on_click(() => this.handle.focus()).children(body))
-      .when(hint, (el) => el.child(this.line("hook", "Agents don't claim devices yet", { label: "Copy install command", go: (cx) => copy(INSTALL, cx) }, t,
+      .when(hint, (el) => el.child(this.line("hook", "Agents don't claim devices yet", [{ label: "Claude Code", go: (cx) => copy(INSTALL.claude, cx) }, { label: "Codex", go: (cx) => copy(INSTALL.codex, cx) }], t,
         (cx) => { this.hintHidden = true; store.set("hintHidden", true); cx.notify(); })))
       .when(!rail, (el) => el.child(h_flex().h(28).flex_none().px(14).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
         .child(div().min_w(0).truncate().child(footerText(this.rows("ios"), this.android?.devices ?? [], this.refreshedAt, Date.now())))));

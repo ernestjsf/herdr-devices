@@ -654,6 +654,7 @@ test("hookDetected: the plugin, or claim.sh in Claude's settings or Codex's hook
   assert.equal(D.hookDetected({ ...none, plugins: '{"plugins":{"herdr-devices@ernestjsf-herdr-devices":[{}]}}' }), true);
   assert.equal(D.hookDetected({ ...none, codexHooks: '{"hooks":{"PreToolUse":[{"hooks":[{"command":"/p/hooks/claim.sh codex"}]}]}}' }), true);
   assert.equal(D.hookDetected({ ...none, claudeSettings: '{"hooks":{"PreToolUse":[{"hooks":[{"command":"/p/claim.sh claude"}]}]}}' }), true);
+  assert.equal(D.hookDetected({ ...none, codexConfig: '[[hooks.PreToolUse]]\ncommand = "/p/hooks/claim.sh codex"' }), true);
   assert.equal(D.hookDetected(none), false);
   assert.equal(D.hookDetected({ plugins: '{"plugins":{"other@x":[]}}', claudeSettings: '{"theme":"dark"}', codexHooks: "{}" }), false);
 });
