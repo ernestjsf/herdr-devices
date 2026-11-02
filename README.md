@@ -1,5 +1,7 @@
 # herdr-devices
 
+This repo is a Herdr mod plus a Claude Code plugin (the claim hook, see Claims).
+
 Your iOS simulators, connected iPhones and Android emulators and phones in a
 side panel of the [Herdr](https://herdr.dev) desktop app, most recently used
 first, with the everyday actions one click away. Pick a Maestro flow from the
@@ -58,6 +60,25 @@ To claim the first free booted simulator:
 for udid in $(xcrun simctl list devices booted -j | grep -o '"udid" : "[^"]*"' | cut -d'"' -f4); do
   mkdir ~/.cache/herdr-devices/claims/$udid 2>/dev/null && { echo $PPID > ~/.cache/herdr-devices/claims/$udid/pid; echo "$udid"; break; }
 done
+```
+
+### Agents claim automatically
+
+Claude Code:
+
+```sh
+claude plugin install herdr-devices --marketplace ernestjsf/herdr-devices
+```
+
+The hook claims the device on any Maestro MCP call with a `device_id`, and denies the call with a reason when another live agent holds it. It takes over a dead agent's claim and releases its own at session end. A Maestro server installed as a plugin has a different tool prefix: adjust the matcher in `hooks/hooks.json`.
+
+Codex: clone this repo and put the same two hooks in `~/.codex/hooks.json`, with `codex` as the label and the absolute path to the script. Codex asks you to trust the hook.
+
+```json
+{"hooks": {
+  "PreToolUse": [{"matcher": "mcp__maestro__.*", "hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}],
+  "SessionEnd": [{"hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}]
+}}
 ```
 
 ## What it runs

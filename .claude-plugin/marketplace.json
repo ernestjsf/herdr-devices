@@ -1,0 +1,12 @@
+{
+  "name": "herdr-devices",
+  "description": "Hooks that claim the device a Maestro MCP call names.",
+  "owner": { "name": "Ernest Jusuf" },
+  "plugins": [
+    {
+      "name": "herdr-devices",
+      "source": "./",
+      "description": "Claims the simulator or device a Maestro MCP call names, so two agents don't drive the same one."
+    }
+  ]
+}

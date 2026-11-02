@@ -194,6 +194,13 @@ action button reads `Working…` while it runs.
   menu`. The menu gets `Release claim` (icon `square`) after the Maestro items
   while the device is claimed: `rm -r <claims>/<id>`, refused unless the id
   passes `CLAIM_ID` and the folder is absolute.
+  **Hook** (`hooks/claim.sh <label>`, POSIX sh, no dependencies, hook JSON on stdin): the agent is the
+  first ancestor of the script that is not sh, bash, zsh or dash (`ps -o ppid=,comm=`; `$PPID` if the walk
+  fails). On `PreToolUse` for a tool matching `mcp__*maestro*` with a `device_id` that passes the `CLAIM_ID`
+  pattern, it `mkdir`s the claim and writes `pid` and `owner` (the label). If the folder exists: the same
+  pid passes; another live pid (`kill -0`) or no usable pid (a manual reservation) denies with exit 2 and a
+  reason on stderr; a dead pid is removed and claimed anew. On `SessionEnd` it removes the folders whose
+  pid is the agent's. Anything else, and any failure, exits 0 (fail open).
 - **Order and fold**: each section puts booted devices (and those with a
   phase under way) first, then sorts by the latest of simctl's
   `lastBootedAt` and the device's last use (shared `devices.used`: this
