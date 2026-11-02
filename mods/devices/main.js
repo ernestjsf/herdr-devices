@@ -7,7 +7,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
 import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, driverTag, claimId, claimTag, dividerBefore, menuDividers } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroFound, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -18,6 +18,8 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k) ?? "null"); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
+
+const INSTALL = "claude plugin install herdr-devices --marketplace ernestjsf/herdr-devices";
 
 function copy(text, cx) {
   cx.write_to_clipboard(text);
@@ -75,6 +77,8 @@ class Panel {
     this.reload(cx, "ios", !cache);
     this.reload(cx, "android", !cache);
     maestroFound(); // checked now, so the first menu already knows
+    hookInstalled();
+    this.hintHidden = store.get("hintHidden") === true;
     // adb can only be polled (exec waits for a program to end, so
     // `adb track-devices` can't stream). Timers run while hidden: no faster.
     // The AVDs themselves are listed again only when their .ini files change.
@@ -275,11 +279,12 @@ class Panel {
   }
 
   // A centered dim line with one accent link.
-  line(id, text, link, t) {
+  line(id, text, link, t, hide) {
     return h_flex().flex_none().flex_wrap().justify_center().gap(4).px(14).py(8).text_size(12)
       .child(div().text_color(t.dim).child(text))
       .when(Boolean(link), (el) => el.child(div().text_color(t.dim).child("·"))
-        .child(div().id(`link-${id}`).text_color(t.accent).cursor_pointer().on_click((_e, cx) => link.go(cx)).child(link?.label ?? "")));
+        .child(div().id(`link-${id}`).text_color(t.accent).cursor_pointer().on_click((_e, cx) => link.go(cx)).child(link?.label ?? "")))
+      .when(Boolean(hide), (el) => el.child(div().id(`hide-${id}`).text_color(t.dim).cursor_pointer().on_click((_e, cx) => hide(cx)).child("×")));
   }
 
   // A section: header (chevron, title, count), its rows (booted, then recent first,
@@ -328,8 +333,10 @@ class Panel {
         : devices.length ? null : { text: "No emulators or devices", link: LINKS.studio };
       secs.push(["Android", devices, empty]);
     }
-    // The list: the panel less its border (2), header (42), footer (28, not in the rail) and bottom padding (8).
-    const listHeight = this.height - 2 - 42 - (rail ? 0 : 28) - 8;
+    // Maestro is there but no agent can claim: one hint above the footer, unless hidden for good.
+    const hint = !rail && maestroFound() && !hookInstalled() && !this.hintHidden;
+    // The list: the panel less its border (2), header (42), footer (28) and hint (32), neither in the rail, and bottom padding (8).
+    const listHeight = this.height - 2 - 42 - (rail ? 0 : 28) - (hint ? 32 : 0) - 8;
     const fits = fitsUnfolded(secs.map(([title, devices]) => ({ count: devices.length, closed: !rail && this.folds.closed[title] === true })), listHeight);
     const c = { t, rail, fits, pending: shared("devices.pending") ?? {}, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents(), shown: [] };
     for (const [title, devices, empty] of secs) body.push(...this.section(title, devices, empty, c));
@@ -345,6 +352,8 @@ class Panel {
           .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { forgetAvds(); this.reloadAll(cx, true); }))
           .child(working ? svg(SPINNER).size(14).text_color(t.muted).spin(900) : svg(icon("refresh")).size(14).text_color(t.muted))))
       .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().on_click(() => this.handle.focus()).children(body))
+      .when(hint, (el) => el.child(this.line("hook", "Agents don't claim devices yet", { label: "Copy install command", go: (cx) => copy(INSTALL, cx) }, t,
+        (cx) => { this.hintHidden = true; store.set("hintHidden", true); cx.notify(); })))
       .when(!rail, (el) => el.child(h_flex().h(28).flex_none().px(14).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
         .child(div().min_w(0).truncate().child(footerText(this.rows("ios"), this.android?.devices ?? [], this.refreshedAt, Date.now())))));
   }

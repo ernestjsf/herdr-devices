@@ -648,3 +648,12 @@ test("stepsFor release: rm -r of the claim folder, nothing outside it", () => {
   assert.throws(() => D.stepsFor("release", { kind: "sim", id: "U-1" }, { claimsDir: "claims" }), /Unexpected claim/);
   assert.throws(() => D.stepsFor("release", { kind: "sim", id: "U-1" }, {}), /Unexpected claim/);
 });
+
+test("hookDetected: the plugin, or claim.sh in Claude's settings or Codex's hooks", () => {
+  const none = { plugins: null, claudeSettings: null, codexHooks: null };
+  assert.equal(D.hookDetected({ ...none, plugins: '{"plugins":{"herdr-devices@ernestjsf-herdr-devices":[{}]}}' }), true);
+  assert.equal(D.hookDetected({ ...none, codexHooks: '{"hooks":{"PreToolUse":[{"hooks":[{"command":"/p/hooks/claim.sh codex"}]}]}}' }), true);
+  assert.equal(D.hookDetected({ ...none, claudeSettings: '{"hooks":{"PreToolUse":[{"hooks":[{"command":"/p/claim.sh claude"}]}]}}' }), true);
+  assert.equal(D.hookDetected(none), false);
+  assert.equal(D.hookDetected({ plugins: '{"plugins":{"other@x":[]}}', claudeSettings: '{"theme":"dark"}', codexHooks: "{}" }), false);
+});

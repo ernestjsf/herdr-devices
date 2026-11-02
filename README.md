@@ -64,6 +64,8 @@ done
 
 ### Agents claim automatically
 
+Until the panel finds the plugin (or a `claim.sh` hook), it shows an "Agents don't claim devices yet" line with a **Copy install command** link, when Maestro is installed. **×** hides it for good.
+
 Claude Code:
 
 ```sh

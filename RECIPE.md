@@ -201,6 +201,16 @@ action button reads `Working…` while it runs.
   pid passes; another live pid (`kill -0`) or no usable pid (a manual reservation) denies with exit 2 and a
   reason on stderr; a dead pid is removed and claimed anew. On `SessionEnd` it removes the folders whose
   pid is the agent's. Anything else, and any failure, exits 0 (fail open).
+- **Hook hint**: under the list, above the footer, not in the rail: a `line()`
+  (`Agents don't claim devices yet · Copy install command`, then a dim `×`).
+  Shown while `maestroFound()` and not `hookInstalled()` (`actions.js`, read
+  once a minute, true until the first read; `hookDetected` over
+  `~/.claude/plugins/installed_plugins.json` containing `"herdr-devices@`,
+  `~/.claude/settings.json` or `~/.codex/hooks.json` containing `claim.sh`; a
+  failed read is not installed) and not hidden. The link copies `claude plugin
+  install herdr-devices --marketplace ernestjsf/herdr-devices` (toast `Copied`);
+  `×` sets `hintHidden` in the panel's `localStorage`. The list gives up 32px
+  of height while it shows.
 - **Order and fold**: each section puts booted devices (and those with a
   phase under way) first, then sorts by the latest of simctl's
   `lastBootedAt` and the device's last use (shared `devices.used`: this
@@ -346,11 +356,11 @@ action button reads `Working…` while it runs.
   `screenshotPath`, `validUrl`, `maestroArgv`, `parseVars`, `maestroPaneName`, `isMaestroPane`, `flowsDefault`, `findFlowsArgv`,
   `flowRows` (find's paths -> `{ label, sub, path }`), `maestroRunning`, `parsePs`,
   `driversFrom` (ps rows, terminals, last CPU times -> `{ drivers, cpu }`),
-  `deviceDrivers`, `driverTag`, `claimId`, `CLAIM_ID`, `claimsFrom`, `staleClaims`, `claimTag`.
+  `deviceDrivers`, `driverTag`, `claimId`, `CLAIM_ID`, `claimsFrom`, `staleClaims`, `claimTag`, `hookDetected`.
 - `actions.js`: `loadIos()`, `loadAndroid()`, `bootCompleted(serial)`,
   `emulatorRunning(avd)`, `emulatorLastLine(avd)`, `endWipe(device)`,
   `avdHome()`, `forgetAvds()`, `focus(device)`, `maestroCwd()`, `maestroStart()`,
-  `runMaestro(device, path, cwd, vars)`, `readPs()`, `readClaims()`, `dropClaims(ids)` and `perform(action, device, { url })`
+  `runMaestro(device, path, cwd, vars)`, `readPs()`, `readClaims()`, `hookInstalled()`, `dropClaims(ids)` and `perform(action, device, { url })`
   through `exec`. `adb` and `emulator` are tried from the path that
   worked last, then PATH, `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` (read once with
   `$ANDROID_AVD_HOME`, `$TMPDIR` and `uname -s` by `sh -c 'printf …'`) and

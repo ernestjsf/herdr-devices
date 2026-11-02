@@ -398,6 +398,10 @@ export const claimsFrom = (entries) =>
 export const staleClaims = (claims, rows) =>
   rows.length ? Object.keys(claims).filter((id) => claims[id].pid && !rows.some((r) => r.pid === claims[id].pid)) : [];
 
+// Whether an agent can claim: the plugin is installed, or a hook script is wired in Claude's settings or Codex's hooks (the three file texts, null when missing).
+export const hookDetected = ({ plugins, claudeSettings, codexHooks }) =>
+  Boolean(plugins?.includes('"herdr-devices@') || claudeSettings?.includes("claim.sh") || codexHooks?.includes("claim.sh"));
+
 // A claim's row tag: { label, tip }.
 export const claimTag = ({ owner, pid }) => ({ label: owner || "claimed", tip: [owner ? `Claimed by ${owner}` : "Claimed", pid && `pid ${pid}`, "Release from the menu"].filter(Boolean).join(" · ") });
 

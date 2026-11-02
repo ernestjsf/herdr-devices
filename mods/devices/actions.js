@@ -12,6 +12,7 @@ let avdBySerial = {}; // running emulator's serial -> AVD name, while adb lists 
 const asking = new Set(); // serials whose name is being asked for
 let avdList = null; // { avds, apis }, until forgetAvds()
 let maestro = { found: true, at: null }; // whether `maestro` starts, and when that was last checked
+let hook = { installed: true, at: null }; // whether an agent hook is wired in, and when that was last read
 const apps = {}; // device key -> its user apps' ids, while it is on
 const askingApps = new Set(); // keys whose apps are being asked for
 
@@ -53,6 +54,18 @@ export function maestroFound() {
     exec("sh", ["-c", "command -v maestro"]).then((r) => r.code === 0 && !!r.stdout.trim(), () => false).then((found) => { maestro.found = found; });
   }
   return maestro.found;
+}
+
+// Whether the claim hook is installed, as last read: known (true) until the first
+// read answers, then read again once a minute, behind the answer.
+export function hookInstalled() {
+  if (!D.stillMissing(hook.at, Date.now())) {
+    hook.at = Date.now();
+    const read = (p) => readTextFile(`${home()}/${p}`).catch(() => null);
+    Promise.all([".claude/plugins/installed_plugins.json", ".claude/settings.json", ".codex/hooks.json"].map(read))
+      .then(([plugins, claudeSettings, codexHooks]) => { hook.installed = D.hookDetected({ plugins, claudeSettings, codexHooks }); });
+  }
+  return hook.installed;
 }
 
 // A tool's path, finding it with a harmless call when no list read did yet.
