@@ -6,8 +6,8 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
-import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, deviceDrivers, driverTag, dividerBefore, menuDividers } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroFound, maestroCwd, maestroStart, runMaestro, mark, readPs } from "./actions.js";
+import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, driverTag, claimId, claimTag, dividerBefore, menuDividers } from "./devices.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroFound, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -38,10 +38,10 @@ const pickerHeight = (n) => PICK_TOP + (n > 6 ? PICK_FILTER : 0) + Math.min(n + 
 const menuHeight = (items) => items.length * MENU_ROW + menuDividers(items) * MENU_DIVIDER + 38;
 // The tab folder's last flow is offered again and a missing maestro disables its row,
 // so the menu knows its rows (and size) now.
-function openMenu(d) {
+function openMenu(d, claim) {
   const cwd = maestroCwd(), lastFlow = shared("devices.maestroLast")?.[cwd], maestro = maestroFound();
-  const items = actionsFor(d, { lastFlow, maestro });
-  openOverlay({ mod: "devices", kind: "popup", width: 250, height: menuHeight(items), props: { role: "menu", device: d, cwd, lastFlow, maestro } });
+  const items = actionsFor(d, { lastFlow, maestro, claim });
+  openOverlay({ mod: "devices", kind: "popup", width: 250, height: menuHeight(items), props: { role: "menu", device: d, cwd, lastFlow, maestro, claim } });
 }
 
 // The one link an empty or error line offers.
@@ -70,6 +70,7 @@ class Panel {
     this.height = 0;
     this.drivers = []; // Maestro MCP's device servers, from the last iOS read
     this.cpu = {}; // their CPU seconds then, by pid
+    this.claims = {}; // device claims by id, from the claims folder
     this.seen = shared("devices.changed");
     this.reload(cx, "ios", !cache);
     this.reload(cx, "android", !cache);
@@ -87,6 +88,15 @@ class Panel {
     // Simulators: their device.plist changes on boot and shutdown. Phones can
     // only be polled, and the poll is the simulators' safety net too.
     cx.timer.every(5000, (cx) => this.reload(cx, "ios"));
+    cx.spawn(async (cx) => {
+      try {
+        const dir = claimsDir();
+        await exec("mkdir", ["-p", dir]); // the watcher needs the folder (fs/promises may not write outside the app's folder)
+        this.claims = await readClaims();
+        cx.notify();
+        for (;;) { await watchFolder(dir); this.claims = await readClaims(); cx.notify(); }
+      } catch {} // no folder: the iOS poll reads it
+    });
     cx.timer.every(10000, (cx) => cx.notify()); // the footer's "refreshed …m ago"
     cx.spawn(async (cx) => {
       try {
@@ -110,7 +120,13 @@ class Panel {
         const prev = this[which] && this.rows(which);
         do { s.again = false; this[which] = await (which === "ios" ? loadIos() : loadAndroid()); } while (s.again);
         // MCP drives simulators and iPhones only: one ps per iOS read.
-        if (which === "ios") ({ drivers: this.drivers, cpu: this.cpu } = driversFrom(await readPs(), terminals(), this.cpu));
+        if (which === "ios") {
+          // Claims before ps: a pid written before the listing is in it while alive.
+          this.claims = await readClaims(); // the watcher's safety net too
+          const rows = await readPs(), stale = staleClaims(this.claims, rows);
+          ({ drivers: this.drivers, cpu: this.cpu } = driversFrom(rows, terminals(), this.cpu));
+          if (stale.length) { await dropClaims(stale); this.claims = await readClaims(); } // holders gone
+        }
         this.refreshedAt = Date.now();
         // Read failed or partial: keep the recents it can't vouch for.
         const used = shared("devices.used") ?? {}, complete = which === "ios" ? !this.ios.error : !this.android.notes.length;
@@ -129,6 +145,9 @@ class Panel {
   reloadAll(cx, shown) { this.reload(cx, "ios", shown); this.reload(cx, "android", shown); }
 
   rows(which) { return which === "ios" ? (this.ios?.sections ?? []).flatMap((s) => s.devices) : this.android?.devices ?? []; }
+
+  // The device's claim, if it has one.
+  claimOf(d) { const id = claimId(d); return id ? this.claims[id] : undefined; }
 
   devices() { return [...this.rows("ios"), ...this.rows("android")]; }
 
@@ -159,7 +178,7 @@ class Panel {
   }
 
   act(action, d, cx) {
-    if (action === "more") return openMenu(d);
+    if (action === "more") return openMenu(d, this.claimOf(d));
     const quiet = action === "boot" || action === "shutdown"; // the row's glyph shows those
     if (!quiet) this.busy++;
     cx.spawn(async (cx) => {
@@ -189,7 +208,7 @@ class Panel {
     else if (k === "enter") this.click(d, phase, this.selected, false, cx);
     else if (k === "space" && toggle) this.act(toggle, d, cx);
     else if (k === "s" && hoverActions(d, phase).some((a) => a.action === "screenshot")) this.act("screenshot", d, cx);
-    else if (k === "m") openMenu(d);
+    else if (k === "m") openMenu(d, this.claimOf(d));
     else return;
     cx.stop_propagation();
     cx.notify();
@@ -212,12 +231,12 @@ class Panel {
 
   row(d, c) {
     const { t, rail, pending } = c, key = deviceKey(d), phase = phaseOf(d, pending);
-    const on = d.state === "on" && !phase, drivers = deviceDrivers(d, this.drivers, c.terminals, c.agents);
+    const on = d.state === "on" && !phase, drivers = deviceDrivers(d, this.drivers, c.terminals, c.agents), claim = this.claimOf(d);
     return h_flex().id(`row-${key}`).h(26).flex_none().mx(6).pr(4).gap(8).items_center().when(rail, (el) => el.justify_center()).rounded(6).cursor_pointer().text_size(12.5)
       .when(this.selected === key, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.click(d, phase, key, rail, cx))
-      .on_mouse_down("right", (_e, cx) => { openMenu(d); cx.stop_propagation(); })
+      .on_mouse_down("right", (_e, cx) => { openMenu(d, this.claimOf(d)); cx.stop_propagation(); })
       .when(rail, (el) => el.tooltip(`${d.name} · ${phase ? `${phase}…` : d.state === "on" ? "booted" : d.state}`))
       // Reserved: the run half colors this bar by space. Nothing yet.
       .child(div().w(2).h(14).flex_none().rounded(1))
@@ -226,6 +245,7 @@ class Panel {
         .child(div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name))
         .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.done + "1f").text_size(10.5).font_medium().text_color(t.done).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
         .when(drivers.length > 0, (n) => n.child(this.driver(drivers, key, c)))
+        .when(Boolean(claim), (n) => { const g = claimTag(claim); return n.child(div().id(`claim-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.raised).text_size(10.5).font_medium().text_color(t.muted).tooltip(g.tip).child(g.label)); })
         .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
         .child(div().flex_1())
         // Right-aligned before the icons. A simulator's version is its section's title already.
@@ -335,10 +355,10 @@ class Panel {
 // finishes first ("Working…"), then closes.
 class Menu {
   init(cx) {
-    const { device, cwd, lastFlow, maestro } = props();
+    const { device, cwd, lastFlow, maestro, claim } = props();
     this.device = device;
     this.cwd = cwd;
-    this.items = actionsFor(device, { lastFlow, maestro });
+    this.items = actionsFor(device, { lastFlow, maestro, claim });
     this.at = -1;
     this.busy = -1;
     this.handle = cx.focus_handle();

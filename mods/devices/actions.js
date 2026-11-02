@@ -156,6 +156,19 @@ export async function loadIos() {
   } catch { return { sections: [], error: "simctl printed something unreadable" }; }
 }
 
+// Where agents claim devices, one folder per device.
+export const claimsDir = () => `${home()}/.cache/herdr-devices/claims`;
+
+// { id: { owner, pid } } for the claim folders there are.
+export async function readClaims() {
+  const dir = claimsDir(), file = (name, f) => readTextFile(`${dir}/${name}/${f}`).catch(() => null);
+  const names = (await readdir(dir, { withFileTypes: true }).catch(() => [])).filter((e) => e.isDirectory()).map((e) => e.name);
+  return D.claimsFrom(await Promise.all(names.map(async (name) => ({ name, owner: await file(name, "owner"), pid: await file(name, "pid") }))));
+}
+
+// Removes the claim folders of `ids` (their holders are gone); a failure leaves the claim for the next read.
+export const dropClaims = (ids) => Promise.all(ids.filter((id) => D.CLAIM_ID.test(id)).map((id) => exec("rm", ["-r", `${claimsDir()}/${id}`]).catch(() => null)));
+
 // Every process with its parent and CPU time, to tell which terminal drives a device; [] when ps fails.
 export async function readPs() {
   const r = await exec("ps", ["-axo", "pid=,ppid=,time=,command="]).catch(() => null);
@@ -272,8 +285,8 @@ export function runMaestro(d, flows, cwd, vars = []) {
   run("terminal.open", { argv: D.maestroArgv(d, flows, vars), folder: cwd, place: "down", name: D.maestroPaneName(d) });
 }
 
-const VERB = { boot: "boot", shutdown: "shut down", screenshot: "take a screenshot of", openurl: "open the URL on", stop: "stop the app on", erase: "erase" };
-const LABEL = { boot: "Boot", shutdown: "Shut down", screenshot: "Screenshot", openurl: "Open URL", stop: "Stop", erase: "Erase" };
+const VERB = { boot: "boot", shutdown: "shut down", screenshot: "take a screenshot of", openurl: "open the URL on", stop: "stop the app on", erase: "erase", release: "release the claim on" };
+const LABEL = { boot: "Boot", shutdown: "Shut down", screenshot: "Screenshot", openurl: "Open URL", stop: "Stop", erase: "Erase", release: "Release claim" };
 
 // Runs an action on a device, stopping at the first failure, and toasts what
 // happened. Every panel copy reloads after. `url`: for openurl, `app`: for stop.
@@ -289,8 +302,8 @@ export async function perform(action, d, { url, app } = {}) {
   mark("devices.used", key, Date.now());
   if (action === "boot" || action === "shutdown") phase(action === "boot" ? "booting" : "stopping");
   try {
-    const x = { url, app, path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
-    if (d.kind === "avd" || d.kind === "phone") {
+    const x = { url, app, claimsDir: claimsDir(), path: action === "screenshot" ? D.screenshotPath(home(), d.name, new Date()) : null };
+    if ((d.kind === "avd" || d.kind === "phone") && action !== "release") {
       x.adb = await toolPath("adb");
       const launch = action === "boot" || action === "erase";
       if (launch) { x.emulator = await toolPath("emulator"); x.log = await emulatorLog(d.avd); }

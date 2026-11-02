@@ -600,3 +600,51 @@ test("menu dividers fall where the group changes", () => {
   assert.equal(D.menuDividers(items), 5);
   assert.equal(D.menuDividers(D.actionsFor({ kind: "sim", id: "U", state: "off" })), 2);
 });
+
+test("claimId: the UDID for simulators and iPhones, the serial for running Android, none for an off AVD", () => {
+  assert.equal(D.claimId({ kind: "sim", id: "U-1" }), "U-1");
+  assert.equal(D.claimId({ kind: "ios", id: "I-1" }), "I-1");
+  assert.equal(D.claimId({ kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "a" }), "emulator-5554");
+  assert.equal(D.claimId({ kind: "phone", id: "R5CT", serial: "R5CT" }), "R5CT");
+  assert.equal(D.claimId({ kind: "avd", id: "a", avd: "a", state: "off" }), null);
+});
+
+test("claimsFrom: owner's first line (40 characters at most) or none, pid as a number or none", () => {
+  const claims = D.claimsFrom([{ name: "U-1", owner: "claude\nsecond line\n", pid: "4242\n" }, { name: "U-2", owner: null }, { name: "U-3", owner: "x".repeat(60), pid: "not a pid" }, { name: "U-4", pid: "0" }]);
+  assert.deepEqual(claims, { "U-1": { owner: "claude", pid: 4242 }, "U-2": { owner: null, pid: null }, "U-3": { owner: "x".repeat(40), pid: null }, "U-4": { owner: null, pid: null } });
+});
+
+test("staleClaims: ids whose pid is not in ps; no pid or no rows keeps them", () => {
+  const rows = psRows(), claims = { A: { pid: 640 }, B: { pid: 99999 }, C: { pid: null } };
+  assert.deepEqual(D.staleClaims(claims, rows), ["B"]);
+  assert.deepEqual(D.staleClaims(claims, []), []);
+});
+
+test("CLAIM_ID: a single safe path segment", () => {
+  for (const id of ["..", "a/b", ""]) assert.equal(D.CLAIM_ID.test(id), false);
+  for (const id of ["00008110-001A2B3C4D5E601E", "emulator-5554"]) assert.equal(D.CLAIM_ID.test(id), true);
+});
+
+test("claimTag: label and tooltip, with and without an owner and pid", () => {
+  assert.deepEqual(D.claimTag({ owner: "codex", pid: 4242 }), { label: "codex", tip: "Claimed by codex · pid 4242 · Release from the menu" });
+  assert.deepEqual(D.claimTag({ owner: null, pid: null }), { label: "claimed", tip: "Claimed · Release from the menu" });
+});
+
+test("Release claim: in the menu only when claimed, after the Maestro items", () => {
+  const sim = { kind: "sim", id: "U", state: "on" };
+  const names = (o) => D.actionsFor(sim, o).map((a) => a.action);
+  assert.deepEqual(names({ lastFlow: "/p/a.yaml", claim: { owner: null, pid: null } }), ["shutdown", "screenshot", "openurl", "maestro", "maestroAgain", "release", "copy", "erase"]);
+  assert.ok(!names({}).includes("release"));
+  assert.equal(D.actionsFor(sim, { claim: {} }).find((a) => a.action === "release").label, "Release claim");
+});
+
+test("stepsFor release: rm -r of the claim folder, nothing outside it", () => {
+  const x = { claimsDir: "/Users/me/.cache/herdr-devices/claims" };
+  assert.deepEqual(D.stepsFor("release", { kind: "sim", id: "U-1" }, x), [{ argv: ["rm", "-r", "/Users/me/.cache/herdr-devices/claims/U-1"] }]);
+  assert.deepEqual(D.stepsFor("release", { kind: "avd", id: "emulator-5554", serial: "emulator-5554" }, x)[0].argv[2], `${x.claimsDir}/emulator-5554`);
+  assert.deepEqual(D.stepsFor("release", { kind: "ios", id: "I-1" }, x)[0].argv[2], `${x.claimsDir}/I-1`);
+  for (const id of ["../x", "a/b", "..", ".", ""]) assert.throws(() => D.stepsFor("release", { kind: "sim", id }, x), /Unexpected claim/);
+  assert.throws(() => D.stepsFor("release", { kind: "avd", id: "a", avd: "a" }, x), /Unexpected claim/); // off AVD: no id
+  assert.throws(() => D.stepsFor("release", { kind: "sim", id: "U-1" }, { claimsDir: "claims" }), /Unexpected claim/);
+  assert.throws(() => D.stepsFor("release", { kind: "sim", id: "U-1" }, {}), /Unexpected claim/);
+});

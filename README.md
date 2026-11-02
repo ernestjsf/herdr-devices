@@ -32,6 +32,7 @@ Hover a row for Boot or Shut down, Screenshot and More. Right-click for the full
 | Copy app id | the running app's bundle id       | its package name                                     |
 | Stop *app* | `simctl terminate`                 | `adb shell am force-stop`                            |
 | Erase…     | `simctl erase`                     | wipes data and snapshots, only while off             |
+| Release claim | `rm -r` of the claim folder     | the same                                             |
 
 - **Run Maestro flow…** lists the flows in the tab's `.maestro` folder, or another folder via Browse…. Variables pass as `maestro test -e`. The last flow and its variables are remembered, and the menu offers **Run *flow* again**. Flows should launch the app themselves, since the mod only runs `maestro test`.
 - **Erase…** asks first.
@@ -39,11 +40,31 @@ Hover a row for Boot or Shut down, Screenshot and More. Right-click for the full
 
 Screenshots go to `~/Desktop`. An emulator started from the panel logs to `$TMPDIR/herdr-devices-<avd>.log`.
 
+## Claims
+
+Two agents driving one simulator trample each other. A claim is a folder named after the device id Maestro's `--device` takes (the UDID, or the adb serial), holding the agent's pid. The panel tags the row, offers **Release claim** in the menu, and drops the claim once that pid is gone.
+
+```sh
+mkdir -p ~/.cache/herdr-devices/claims
+mkdir ~/.cache/herdr-devices/claims/<udid> && echo $PPID > ~/.cache/herdr-devices/claims/<udid>/pid   # fails if held
+rm -r ~/.cache/herdr-devices/claims/<udid>   # release
+```
+
+A plain `mkdir`, never `mkdir -p`: `-p` succeeds on an existing folder. From an agent's command shell, `$PPID` is the agent itself. An `owner` file's first line becomes the tag's label.
+
+To claim the first free booted simulator:
+
+```sh
+for udid in $(xcrun simctl list devices booted -j | grep -o '"udid" : "[^"]*"' | cut -d'"' -f4); do
+  mkdir ~/.cache/herdr-devices/claims/$udid 2>/dev/null && { echo $PPID > ~/.cache/herdr-devices/claims/$udid/pid; echo "$udid"; break; }
+done
+```
+
 ## What it runs
 
 Only local tools, always as argument lists. It never reaches the network.
 
-It calls `xcrun simctl`, `xcrun devicectl`, `emulator`, `adb` and `maestro`, plus `ps`, `pgrep`, `find`, `open`, `sh` and `rm` for process checks, flow lists and erase. Android tools are found on `PATH`, then under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`. It watches `~/Library/Developer/CoreSimulator` and the AVD home.
+It calls `xcrun simctl`, `xcrun devicectl`, `emulator`, `adb` and `maestro`, plus `ps`, `pgrep`, `find`, `open`, `sh`, `mkdir` and `rm` for process checks, flow lists, claims and erase. Android tools are found on `PATH`, then under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`. It watches `~/Library/Developer/CoreSimulator` and the AVD home.
 
 ## Install
 
@@ -67,6 +88,7 @@ is added, with `devices` in place of `graph`.
 ## Limits
 
 - iOS needs macOS and Xcode. The Android half should work on Linux, untested.
+- A claim without a pid file stays until released from the menu.
 - Clicking a booted AVD does nothing: the emulator window has no app bundle to activate.
 - Tested on macOS with Herdr 0.1.10. AVD erase, Android screenshots and Open URL, and connected iOS devices are covered by tests, not run live yet.
 

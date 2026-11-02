@@ -80,7 +80,7 @@ height 30px per item, 9px per divider, plus 38px: a 24px line with the device's 
 after the label names the panel's key: `space` on Boot and Shut down, `S` on Screenshot. Items, in sections
 parted by a 1px `border` line (8px side margin, 4px above and below): Shut down or
 Boot | Screenshot and `Open URL…` (when on) | `Run Maestro flow…` and `Run <flow>
-again` | `Copy app id` and a `Stop <app>` per app (when on with a known app) |
+again` | `Release claim` (when the device is claimed) | `Copy app id` and a `Stop <app>` per app (when on with a known app) |
 `Copy UDID` / `Copy serial` / `Copy name` | `Erase…` in `ansi1` (icon and text).
 Without `maestro` installed `Run Maestro flow…` is a `dim` row (icon and text) with a
 `not installed` hint in the key hints' place, no hover or click.
@@ -175,6 +175,25 @@ action button reads `Working…` while it runs.
   {terminal}`, without the row's click; right-click opens the row's menu. Not in
   the rail. Android via Maestro MCP is not tagged: no per-device process was
   found to read (no emulator was running to look).
+- **Claims**: which agent holds a device. A claim is the folder
+  `~/.cache/herdr-devices/claims/<id>`, made by the agent with a plain `mkdir`
+  (one creator wins) and holding `pid` (the agent's process) and optionally
+  `owner` (its first line, 40 characters at most, is the tag's label). `<id>` is
+  `claimId(d)`: what Maestro's `--device` takes, the UDID for `sim` and `ios`,
+  the serial for `avd` and `phone`; an off AVD has none. At start the panel runs
+  `mkdir -p` on the folder through `exec` (`fs/promises` writes only under the
+  app's folder), reads it (`readClaims` -> `claimsFrom`), and reads again on
+  every `watchFolder(dir)` change and every iOS read. On the iOS read, before
+  the one `ps`, the claims are read; `staleClaims(claims, rows)` are those whose
+  `pid` is absent from the rows, `dropClaims` runs `rm -r` on each (ids must pass
+  `CLAIM_ID`), and the claims are read once more. No usable `pid`: kept. No ps
+  rows: nothing dropped. The row, after the driver tag and not in the rail, has
+  a tag like the idle driver tag (`muted` on `raised`, 10.5px, 16px tall, radius
+  4, 96px at most, truncated, no click) labelled the owner, else `claimed`; its
+  tooltip is `Claimed by <owner>` (or `Claimed`) `· pid <n> · Release from the
+  menu`. The menu gets `Release claim` (icon `square`) after the Maestro items
+  while the device is claimed: `rm -r <claims>/<id>`, refused unless the id
+  passes `CLAIM_ID` and the folder is absolute.
 - **Order and fold**: each section puts booted devices (and those with a
   phase under way) first, then sorts by the latest of simctl's
   `lastBootedAt` and the device's last use (shared `devices.used`: this
@@ -320,11 +339,11 @@ action button reads `Working…` while it runs.
   `screenshotPath`, `validUrl`, `maestroArgv`, `parseVars`, `maestroPaneName`, `isMaestroPane`, `flowsDefault`, `findFlowsArgv`,
   `flowRows` (find's paths -> `{ label, sub, path }`), `maestroRunning`, `parsePs`,
   `driversFrom` (ps rows, terminals, last CPU times -> `{ drivers, cpu }`),
-  `deviceDrivers`, `driverTag`.
+  `deviceDrivers`, `driverTag`, `claimId`, `CLAIM_ID`, `claimsFrom`, `staleClaims`, `claimTag`.
 - `actions.js`: `loadIos()`, `loadAndroid()`, `bootCompleted(serial)`,
   `emulatorRunning(avd)`, `emulatorLastLine(avd)`, `endWipe(device)`,
   `avdHome()`, `forgetAvds()`, `focus(device)`, `maestroCwd()`, `maestroStart()`,
-  `runMaestro(device, path, cwd, vars)`, `readPs()` and `perform(action, device, { url })`
+  `runMaestro(device, path, cwd, vars)`, `readPs()`, `readClaims()`, `dropClaims(ids)` and `perform(action, device, { url })`
   through `exec`. `adb` and `emulator` are tried from the path that
   worked last, then PATH, `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` (read once with
   `$ANDROID_AVD_HOME`, `$TMPDIR` and `uname -s` by `sh -c 'printf …'`) and

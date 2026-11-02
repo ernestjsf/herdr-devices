@@ -266,8 +266,8 @@ const DETACH = 'log=$1; shift; mkdir -p "$(dirname "$log")"; nohup "$@" >"$log" 
 // What a row offers, in menu order. `lastFlow`: the flow last run in the tab's
 // folder, offered again right under Run Maestro flow. `maestro`: false when the
 // CLI isn't installed, so the row stays but disabled, and there is no Run again.
-// `hint`: the panel's key for it.
-export function actionsFor(d, { lastFlow, maestro = true } = {}) {
+// `claim`: the device is claimed, so it can be released. `hint`: the panel's key for it.
+export function actionsFor(d, { lastFlow, maestro = true, claim = false } = {}) {
   const on = d.state === "on", list = [];
   if (d.kind === "sim" || (d.kind === "avd" && d.avd)) {
     if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power", hint: "space" });
@@ -281,6 +281,7 @@ export function actionsFor(d, { lastFlow, maestro = true } = {}) {
     else list.push({ action: "maestro", label: "Run Maestro flow…", icon: "flask" });
     if (maestro && lastFlow) list.push({ action: "maestroAgain", label: `Run ${lastFlow.split("/").pop().replace(/\.ya?ml$/, "")} again`, icon: "flask", path: lastFlow });
   }
+  if (claim) list.push({ action: "release", label: "Release claim", icon: "square" });
   if (on && d.apps?.length) {
     list.push({ action: "copyapp", label: "Copy app id", icon: "copy" });
     for (const app of d.apps) list.push({ action: "stop", label: `Stop ${appSegment(app)}`, icon: "square", app });
@@ -380,6 +381,26 @@ export function driverTag(x, agent, t) {
   return { label, tone, tip, focus: agent ? "agent.focus" : "pane.focus" };
 }
 
+// A device claim is the folder <claims>/<id>, made with a plain `mkdir` (exactly one
+// creator wins). The id is what Maestro's --device takes: the UDID, or the serial
+// (an AVD that is off has none, so it can't be claimed).
+export const claimId = (d) => (d.kind === "sim" || d.kind === "ios" ? d.id : d.serial ?? null);
+
+// A claim folder's name: one path segment, never `..` or a path that climbs out of the claims folder.
+export const CLAIM_ID = /^[A-Za-z0-9_:-][A-Za-z0-9._:-]*$/;
+
+// [{ name, owner, pid }] (the owner and pid files' text, if any) -> { id: { owner, pid } }:
+// the owner's first line (40 characters at most), the pid as a positive integer, else null.
+export const claimsFrom = (entries) =>
+  Object.fromEntries(entries.map((e) => [e.name, { owner: e.owner?.split("\n")[0].trim().slice(0, 40) || null, pid: Number(e.pid?.trim()) > 0 ? Number(e.pid) : null }]));
+
+// The claim ids whose pid is no longer in ps's rows. No pid: nothing to check. No rows: ps failed, so drop nothing.
+export const staleClaims = (claims, rows) =>
+  rows.length ? Object.keys(claims).filter((id) => claims[id].pid && !rows.some((r) => r.pid === claims[id].pid)) : [];
+
+// A claim's row tag: { label, tip }.
+export const claimTag = ({ owner, pid }) => ({ label: owner || "claimed", tip: [owner ? `Claimed by ${owner}` : "Claimed", pid && `pid ${pid}`, "Release from the menu"].filter(Boolean).join(" · ") });
+
 // The flows path to offer: the project's .maestro folder when it has one, else its folder.
 export const flowsDefault = (cwd, hasDotMaestro) => (!cwd ? "" : hasDotMaestro ? `${cwd}/.maestro` : cwd);
 
@@ -402,6 +423,12 @@ export function flowRows(flowsDir, paths) {
 // row's phase from that step on. `x` carries the tool
 // paths (adb, emulator), the screenshot path, the URL and the AVD's folder.
 export function stepsFor(action, d, x) {
+  // Only <claims folder>/<id>, never a path that climbs out of it.
+  if (action === "release") {
+    const id = claimId(d);
+    if (!CLAIM_ID.test(id ?? "") || !/^\/./.test(x.claimsDir ?? "")) throw new Error(`Unexpected claim: ${x.claimsDir}/${id}`);
+    return [{ argv: ["rm", "-r", `${x.claimsDir}/${id}`] }];
+  }
   // A device over devicectl: Safari opens the URL; nothing else is offered.
   if (d.kind === "ios") {
     if (action === "openurl") return [{ argv: ["xcrun", "devicectl", "device", "process", "launch", "--device", d.id, "com.apple.mobilesafari", "--payload-url", x.url] }];
@@ -584,6 +611,6 @@ export function primaryAction(d, phase, { rail = false } = {}) {
 }
 
 // The menu's sections, in actionsFor's order: a divider sits where the group changes.
-const MENU_GROUP = { boot: "power", shutdown: "power", screenshot: "view", openurl: "view", maestro: "maestro", maestroAgain: "maestro", copyapp: "app", stop: "app", copy: "copy", erase: "erase" };
+const MENU_GROUP = { boot: "power", shutdown: "power", screenshot: "view", openurl: "view", maestro: "maestro", maestroAgain: "maestro", release: "claim", copyapp: "app", stop: "app", copy: "copy", erase: "erase" };
 export const dividerBefore = (items, i) => i > 0 && MENU_GROUP[items[i].action] !== MENU_GROUP[items[i - 1].action];
 export const menuDividers = (items) => items.filter((_a, i) => dividerBefore(items, i)).length;
