@@ -320,8 +320,11 @@ export async function perform(action, d, { url, app } = {}) {
     if ((d.kind === "avd" || d.kind === "phone") && action !== "release") {
       x.adb = await toolPath("adb");
       const launch = action === "boot" || action === "erase";
+      if (!x.adb && !launch) return fail("adb not found");
       if (launch) { x.emulator = await toolPath("emulator"); x.log = await emulatorLog(d.avd); }
+      if (launch && !x.emulator) return fail("emulator not found");
       if (action === "erase") {
+        if (!x.adb) return fail("adb not found");
         // It is started to be wiped, so it must not be running (another
         // instance would refuse): ask adb and pgrep now, not the last poll.
         const list = await tool("adb", ["devices", "-l"]);
@@ -330,8 +333,6 @@ export async function perform(action, d, { url, app } = {}) {
         if (Object.values(names).includes(d.avd) || (await emulatorRunning(d.avd))) return fail("It's running. Shut it down first.");
         x.avdPath = await avdFolder(d.avd);
       }
-      if (!x.adb && !launch) return fail("adb not found");
-      if (launch && !x.emulator) return fail("emulator not found");
     }
     for (const step of D.stepsFor(action, d, x)) {
       if (step.phase) phase(step.phase);
