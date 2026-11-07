@@ -445,9 +445,16 @@ export const staleClaims = (claims, rows) =>
       })
     : [];
 
-// Whether an agent can claim: the plugin is installed, or a hook script is wired in Claude's settings or Codex's hooks or config (the file texts, null when missing).
-export const hookDetected = ({ plugins, claudeSettings, codexHooks, codexConfig }) =>
-  Boolean(plugins?.includes('"herdr-devices@') || claudeSettings?.includes("claim.sh") || codexHooks?.includes("claim.sh") || codexConfig?.includes("claim.sh"));
+// Whether an agent can claim: the plugin is installed for the user (a `local` install belongs
+// to one project, which may not be this one), or a hook script is wired in Claude's settings
+// (user or local) or Codex's hooks or config (the file texts, null when missing).
+export function hookDetected({ plugins, claudeSettings, claudeLocal, codexHooks, codexConfig }) {
+  let plugin = false;
+  try {
+    plugin = Object.entries(JSON.parse(plugins ?? "{}").plugins ?? {}).some(([name, installs]) => name.startsWith("herdr-devices@") && (installs ?? []).some((i) => i?.scope !== "local"));
+  } catch {}
+  return plugin || [claudeSettings, claudeLocal, codexHooks, codexConfig].some((text) => Boolean(text?.includes("claim.sh")));
+}
 
 // A claim's row tag: { label, tip }.
 export const claimTag = ({ owner, pid }) => ({ label: owner || "claimed", tip: [owner ? `Claimed by ${owner}` : "Claimed", pid && `pid ${pid}`, "Release from the menu"].filter(Boolean).join(" · ") });

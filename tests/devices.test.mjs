@@ -663,6 +663,11 @@ test("hookDetected: the plugin, or claim.sh in Claude's settings or Codex's hook
   assert.equal(D.hookDetected({ ...none, codexHooks: '{"hooks":{"PreToolUse":[{"hooks":[{"command":"/p/hooks/claim.sh codex"}]}]}}' }), true);
   assert.equal(D.hookDetected({ ...none, claudeSettings: '{"hooks":{"PreToolUse":[{"hooks":[{"command":"/p/claim.sh claude"}]}]}}' }), true);
   assert.equal(D.hookDetected({ ...none, codexConfig: '[[hooks.PreToolUse]]\ncommand = "/p/hooks/claim.sh codex"' }), true);
+  assert.equal(D.hookDetected({ ...none, claudeLocal: '{"hooks":{"PreToolUse":[{"hooks":[{"command":"/p/claim.sh claude"}]}]}}' }), true);
+  // A local-scope install belongs to one project, which may not be this one; a user-scope one counts.
+  assert.equal(D.hookDetected({ ...none, plugins: '{"plugins":{"herdr-devices@m":[{"scope":"local","projectPath":"/elsewhere"}]}}' }), false);
+  assert.equal(D.hookDetected({ ...none, plugins: '{"plugins":{"herdr-devices@m":[{"scope":"local"},{"scope":"user"}]}}' }), true);
+  assert.equal(D.hookDetected({ ...none, plugins: "not json" }), false);
   assert.equal(D.hookDetected(none), false);
   assert.equal(D.hookDetected({ plugins: '{"plugins":{"other@x":[]}}', claudeSettings: '{"theme":"dark"}', codexHooks: "{}" }), false);
 });

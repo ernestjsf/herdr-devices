@@ -217,9 +217,10 @@ action button reads `Working…` while it runs.
   (`Agents don't claim devices yet · Claude Code · Codex`, then a dim `×`; `line()` takes one link or an array).
   Shown while `maestroFound()` and not `hookInstalled()` (`actions.js`, read
   once a minute, true until the first read; `hookDetected` over
-  `~/.claude/plugins/installed_plugins.json` containing `"herdr-devices@`,
-  `~/.claude/settings.json`, `~/.codex/hooks.json` or `~/.codex/config.toml`
-  containing `claim.sh`; a failed read is not installed) and not hidden. Each
+  `~/.claude/plugins/installed_plugins.json` with a `herdr-devices@…` install
+  whose scope isn't `local` (that belongs to one project, maybe another),
+  `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.codex/hooks.json`
+  or `~/.codex/config.toml` containing `claim.sh`; a failed read is not installed) and not hidden. Each
   link copies its harness's command from `INSTALL` (toast `Copied`): Claude
   Code, `claude plugin install herdr-devices --marketplace
   ernestjsf/herdr-devices`; Codex, a `git clone` into `~/.codex/herdr-devices`

@@ -62,8 +62,8 @@ export function hookInstalled() {
   if (!D.stillMissing(hook.at, Date.now())) {
     hook.at = Date.now();
     const read = (p) => readTextFile(`${home()}/${p}`).catch(() => null);
-    Promise.all([".claude/plugins/installed_plugins.json", ".claude/settings.json", ".codex/hooks.json", ".codex/config.toml"].map(read))
-      .then(([plugins, claudeSettings, codexHooks, codexConfig]) => { hook.installed = D.hookDetected({ plugins, claudeSettings, codexHooks, codexConfig }); });
+    Promise.all([".claude/plugins/installed_plugins.json", ".claude/settings.json", ".claude/settings.local.json", ".codex/hooks.json", ".codex/config.toml"].map(read))
+      .then(([plugins, claudeSettings, claudeLocal, codexHooks, codexConfig]) => { hook.installed = D.hookDetected({ plugins, claudeSettings, claudeLocal, codexHooks, codexConfig }); });
   }
   return hook.installed;
 }
