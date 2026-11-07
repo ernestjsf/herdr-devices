@@ -38,7 +38,7 @@ in `foreground`. Top to bottom:
     then the app running
     on it (see Apps) as a tag: 16px tall, 5px side padding, radius 4, `done` at
     12% (`done` + `1f`) behind 10.5px medium `done` text, at most 96px wide
-    (truncated), then the driver tag (see Drivers) in the same shape; during a phase `booting…` or `stopping…` at 11px `dim`, then on
+    (truncated), then the agent tag (see Drivers, Claims) in the same shape; during a phase `booting…` or `stopping…` at 11px `dim`, then on
     the right, just before the icons, the secondary at 11px `dim` (never truncated: an AVD's `API
     36`, `emulator` for an unknown AVD, a phone's or iPhone's `USB` or `Wi-Fi`; a
     simulator's version is its section's title, so none), and
@@ -167,14 +167,15 @@ action button reads `Working…` while it runs.
   while its `foreground.argv` is still the `sh -c … maestro --device` command;
   once it execs the shell, it drives nothing. One driver per terminal (the
   pane wins over its own run's server); the first is the active one, then the
-  agent whose status changed last (`agents()`' `seq`). The row's tag shows the
-  first: its terminal's `program.key` (`claude`, `codex`), else its address;
-  the pane reads `maestro`. It brightens under the pointer (`hover` on `raised`,
-  `foreground` text; or the tone at `40`), the row's only tag that does. Active `working` (`working` + `1f` behind), attached with its
+  agent whose status changed last (`agents()`' `seq`). The row's tag (`deviceTags`, one
+  pill, see Claims) shows the first: its terminal's `program.key` (`claude`,
+  `codex`), else its address; the pane reads `maestro`. With a driver it brightens
+  under the pointer (`hover` on `raised`, `foreground` text; or the tone at `40`),
+  the row's only tag that does. Color is liveness: active `working` (`working` + `1f` behind), attached with its
   agent `blocked` likewise in `blocked`, else `muted` on `raised`. The tooltip
   has a line per driver: `Click to focus <program name> · <space> / <tab> · <status> · driving now`
   (or `attached, idle`) `· via Maestro MCP` (or `· this panel's Run Maestro
-  pane`). A click runs `agent.focus {terminal}` for an agent, else `pane.focus
+  pane`), then `Not claimed` when no claim. A click runs `agent.focus {terminal}` for an agent, else `pane.focus
   {terminal}`, without the row's click; right-click opens the row's menu. Not in
   the rail. Android via Maestro MCP is not tagged: no per-device process was
   found to read (no emulator was running to look).
@@ -193,11 +194,17 @@ action button reads `Working…` while it runs.
   `pid` is absent from the rows, or present with another start than the claim's `start`
   (compared only when both are known), `dropClaims` runs `rm -r` on each (ids must pass
   `CLAIM_ID`), and the claims are read once more. No usable `pid`: kept. No ps
-  rows: nothing dropped. The row, after the driver tag and not in the rail, has
-  a tag like the idle driver tag (`muted` on `raised`, 10.5px, 16px tall, radius
-  4, 96px at most, truncated, no click) labelled the owner, else `claimed`; its
-  tooltip is `Claimed by <owner>` (or `Claimed`) `· pid <n> · Release from the
-  menu`. The menu gets `Release claim` (icon `square`) after the Maestro items
+  rows: nothing dropped. The row has one agent pill, not in the rail (same shape as the
+  app tag: 16px tall, 5px side padding, radius 4, 10.5px medium, 96px at most, truncated),
+  a 10px icon, 3px gap, then the program key. Icon = relationship: `lock` claimed, `link`
+  a driver and no claim, `triangle` mismatch. Color = liveness, as under Drivers (claimed
+  with no driver: idle). Text: the claim's owner, else the first driver's key; a claim with
+  neither shows the icon alone. Mismatch (the claim has an owner and no driver's key equals
+  it, case-insensitively; a pane driver reads `maestro`): two pills, the claim (`lock`, idle,
+  owner, not clickable) then the driver (`triangle`, `blocked`, key, clickable). Ids `tag-<key>`
+  and `driver-<key>`. Click and hover only with a driver. Tooltip: `Claimed by <owner>` (or
+  `Claimed`) `· pid <n> · Release from the menu`, then the driver lines (one per line), or
+  `· not attached`. The menu gets `Release claim` (icon `square`) after the Maestro items
   while the device is claimed: `rm -r <claims>/<id>`, refused unless the id
   passes `CLAIM_ID` and the folder is absolute.
   **Hook** (`hooks/claim.sh <label>`, POSIX sh, no dependencies, hook JSON on stdin): the agent is the
@@ -377,7 +384,7 @@ action button reads `Working…` while it runs.
   `screenshotPath`, `validUrl`, `maestroArgv`, `parseVars`, `maestroPaneName`, `isMaestroPane`, `flowsDefault`, `findFlowsArgv`,
   `flowRows` (find's paths -> `{ label, sub, path }`), `maestroRunning`, `parsePs`,
   `driversFrom` (ps rows, terminals, last CPU times -> `{ drivers, cpu }`),
-  `deviceDrivers`, `driverTag`, `claimId`, `CLAIM_ID`, `claimsFrom`, `staleClaims`, `claimTag`, `hookDetected`.
+  `deviceDrivers`, `driverTag`, `claimId`, `CLAIM_ID`, `claimsFrom`, `staleClaims`, `deviceTags`, `hookDetected`.
 - `actions.js`: `loadIos()`, `loadAndroid()`, `bootCompleted(serial)`,
   `emulatorRunning(avd)`, `emulatorLastLine(avd)`, `endWipe(device)`,
   `avdHome()`, `forgetAvds()`, `focus(device)`, `maestroCwd()`, `maestroStart()`,

@@ -456,8 +456,22 @@ export function hookDetected({ plugins, claudeSettings, claudeLocal, codexHooks,
   return plugin || [claudeSettings, claudeLocal, codexHooks, codexConfig].some((text) => Boolean(text?.includes("claim.sh")));
 }
 
-// A claim's row tag: { label, tip }.
-export const claimTag = ({ owner, pid }) => ({ label: owner || "claimed", tip: [owner ? `Claimed by ${owner}` : "Claimed", pid && `pid ${pid}`, "Release from the menu"].filter(Boolean).join(" · ") });
+
+// A row's agent tag(s): [{ icon, label, tone, tip, focus, terminal }], none when the device is neither
+// claimed nor driven. One tag: `lock` when claimed, else `link` (driven); label the claim's owner, else
+// the first driver's program key; tone from the first driver (idle without one). A claim whose owner no
+// driver matches (case-insensitive) is two: the claim (`lock`, idle) then the driver (`triangle`, blocked).
+// focus/terminal (the click) only on a tag that stands for the first driver.
+export function deviceTags(claim, drivers, agents, terminals) {
+  const tags = drivers.map((x) => driverTag(x, agents.find((a) => a.address === x.address), terminals.find((y) => y.address === x.address)));
+  const [first] = tags, terminal = drivers[0]?.address, owner = claim?.owner;
+  const driven = (ts) => ts.map((g) => g.tip).join("\n");
+  if (!claim) return first ? [{ icon: "link", label: first.label, tone: first.tone, tip: `${driven(tags)}\nNot claimed`, focus: first.focus, terminal }] : [];
+  const head = [owner ? `Claimed by ${owner}` : "Claimed", claim.pid && `pid ${claim.pid}`, "Release from the menu"].filter(Boolean).join(" · ");
+  if (first && owner && !tags.some((g) => g.label.toLowerCase() === owner.toLowerCase()))
+    return [{ icon: "lock", label: owner, tone: "idle", tip: head }, { icon: "triangle", label: first.label, tone: "blocked", tip: driven(tags), focus: first.focus, terminal }];
+  return [{ icon: "lock", label: owner || first?.label || "", tone: first?.tone ?? "idle", tip: first ? `${head}\n${driven(tags)}` : `${head} · not attached`, focus: first?.focus, terminal }];
+}
 
 // The flows path to offer: the project's .maestro folder when it has one, else its folder.
 export const flowsDefault = (cwd, hasDotMaestro) => (!cwd ? "" : hasDotMaestro ? `${cwd}/.maestro` : cwd);

@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
-import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, driverTag, claimId, claimTag, dividerBefore, menuDividers } from "./devices.js";
+import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
@@ -262,8 +262,7 @@ class Panel {
       .when(!rail, (el) => el
         .child(div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name))
         .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.done + "1f").text_size(10.5).font_medium().text_color(t.done).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
-        .when(drivers.length > 0, (n) => n.child(this.driver(drivers, key, c)))
-        .when(Boolean(claim), (n) => { const g = claimTag(claim); return n.child(div().id(`claim-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.raised).text_size(10.5).font_medium().text_color(t.muted).tooltip(g.tip).child(g.label)); })
+        .children(deviceTags(claim, drivers, c.agents, c.terminals).map((g, i, all) => this.tag(g, i && all.length > 1 ? `driver-${key}` : `tag-${key}`, t)))
         .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
         .child(div().flex_1())
         // Right-aligned before the icons. A simulator's version is its section's title already.
@@ -278,18 +277,18 @@ class Panel {
             .child(svg(icon(a.icon)).size(13).text_color(t.muted))))));
   }
 
-  // Who drives the device, shaped like the app tag: `working` while driving,
-  // `blocked` when its agent is, else muted (holds it, idle). It brightens under
-  // the pointer, unlike the app tag: a click focuses the first driver's terminal.
-  // The tooltip lists every driver.
-  driver(drivers, key, c) {
-    const { t } = c, tags = drivers.map((x) => driverTag(x, c.agents.find((a) => a.address === x.address), c.terminals.find((y) => y.address === x.address)));
-    const { label, tone, focus } = tags[0], idle = tone === "idle";
-    return div().id(`driver-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(idle ? t.raised : t[tone] + "1f").text_size(10.5).font_medium().text_color(idle ? t.muted : t[tone])
-      .hover((s) => s.bg(idle ? t.hover : t[tone] + "40").text_color(idle ? t.foreground : t[tone]))
-      .tooltip(tags.map((g) => g.tip).join("\n"))
-      .on_click((_e, cx) => { cx.stop_propagation(); run(focus, { terminal: drivers[0].address }); })
-      .child(label);
+  // The agent pill, shaped like the app tag: an icon for the relationship (lock claimed, link
+  // driven, triangle mismatch), the tone for liveness (`working` driving, `blocked` its agent is,
+  // else muted), then the program's key. With a driver it brightens under the pointer, unlike the
+  // app tag: a click focuses the first driver's terminal.
+  tag({ icon: ic, label, tone, tip, focus, terminal }, id, t) {
+    const idle = tone === "idle";
+    return h_flex().id(id).flex_none().max_w(96).truncate().items_center().gap(3).px(5).h(16).rounded(4).bg(idle ? t.raised : t[tone] + "1f").text_size(10.5).font_medium().text_color(idle ? t.muted : t[tone])
+      .when(Boolean(focus), (el) => el.hover((s) => s.bg(idle ? t.hover : t[tone] + "40").text_color(idle ? t.foreground : t[tone]))
+        .on_click((_e, cx) => { cx.stop_propagation(); run(focus, { terminal }); }))
+      .tooltip(tip)
+      .child(svg(icon(ic)).size(10).flex_none())
+      .when(Boolean(label), (el) => el.child(label));
   }
 
   // A centered dim line with accent links (one, or an array).

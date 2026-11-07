@@ -15,7 +15,7 @@ right-click menu and it runs on that device in a pane below.
 - Running devices first, then the most recent. When space runs short, **Show all** reveals the older off devices.
 - Each row shows the device type and its state: booted, off, booting or offline.
 - A booted device shows its running app as a tag (`com.example.budget` shows `budget`).
-- A second tag names who is driving it: an agent (`claude`, `codex`) through Maestro MCP, or `maestro` for the panel's own run. Click it to jump to that agent. Android devices are tagged only for the panel's own run.
+- A second tag names who is driving it, with a link icon: an agent (`claude`, `codex`) through Maestro MCP, or `maestro` for the panel's own run. Click it to jump to that agent. Android devices are tagged only for the panel's own run.
 - Live: simulator changes show within a second. Android and connected iOS devices refresh every 5 s, every 15 s once nothing has changed for half a minute.
 - Under 160 px the panel becomes an icon rail.
 
@@ -44,7 +44,7 @@ Screenshots go to `~/Desktop`. An emulator started from the panel logs to `$TMPD
 
 ## Claims
 
-Two agents driving one simulator trample each other. A claim is a folder named after the device id Maestro's `--device` takes (the UDID, or the adb serial), holding the agent's pid (and, from the hook, its start time, so a reused pid doesn't count). The panel tags the row, offers **Release claim** in the menu, and drops the claim once that pid is gone.
+Two agents driving one simulator trample each other. A claim is a folder named after the device id Maestro's `--device` takes (the UDID, or the adb serial), holding the agent's pid (and, from the hook, its start time, so a reused pid doesn't count). The panel tags the row with one pill (a lock, the owner's name; coloured like a driver while its agent drives the device, a triangle beside it if a different program drives it), offers **Release claim** in the menu, and drops the claim once that pid is gone.
 
 ```sh
 mkdir -p ~/.cache/herdr-devices/claims

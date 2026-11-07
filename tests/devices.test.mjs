@@ -633,9 +633,27 @@ test("CLAIM_ID: a single safe path segment", () => {
   for (const id of ["00008110-001A2B3C4D5E601E", "emulator-5554"]) assert.equal(D.CLAIM_ID.test(id), true);
 });
 
-test("claimTag: label and tooltip, with and without an owner and pid", () => {
-  assert.deepEqual(D.claimTag({ owner: "codex", pid: 4242 }), { label: "codex", tip: "Claimed by codex · pid 4242 · Release from the menu" });
-  assert.deepEqual(D.claimTag({ owner: null, pid: null }), { label: "claimed", tip: "Claimed · Release from the menu" });
+test("deviceTags: one pill for lock (claimed) or link (driven), color for liveness, two on a mismatch", () => {
+  const mcp = (address, active) => ({ via: "mcp", address, active });
+  const agents = [{ address: "t1", status: "working", program: { key: "claude", name: "Claude Code" } }, { address: "t2", status: "idle", program: { key: "codex", name: "Codex" } }];
+  const claim = { owner: "claude", pid: 4242 };
+  const same = D.deviceTags(claim, [mcp("t1", true)], agents, []);
+  assert.deepEqual(same.map((g) => [g.icon, g.label, g.tone, g.focus, g.terminal]), [["lock", "claude", "working", "agent.focus", "t1"]]);
+  assert.match(same[0].tip, /^Claimed by claude · pid 4242 · Release from the menu\nClick to focus Claude Code/);
+  const held = D.deviceTags({ owner: "codex", pid: null }, [], agents, []);
+  assert.deepEqual(held.map((g) => [g.icon, g.label, g.tone, g.focus]), [["lock", "codex", "idle", undefined]]);
+  assert.ok(held[0].tip.endsWith("Claimed by codex · Release from the menu · not attached"));
+  const driving = D.deviceTags(undefined, [mcp("t2", false)], agents, []);
+  assert.deepEqual(driving.map((g) => [g.icon, g.label, g.tone]), [["link", "codex", "idle"]]);
+  assert.ok(driving[0].tip.endsWith("\nNot claimed"));
+  assert.deepEqual(D.deviceTags(undefined, [], agents, []), []);
+  const mismatch = D.deviceTags(claim, [mcp("t2", false)], agents, []);
+  assert.deepEqual(mismatch.map((g) => [g.icon, g.label, g.tone, g.focus]), [["lock", "claude", "idle", undefined], ["triangle", "codex", "blocked", "agent.focus"]]);
+  assert.equal(D.deviceTags({ owner: "Claude", pid: 1 }, [mcp("t1", false)], agents, []).length, 1);
+  assert.deepEqual(D.deviceTags({ owner: null, pid: 1 }, [], agents, []).map((g) => [g.icon, g.label]), [["lock", ""]]);
+  assert.equal(D.deviceTags({ owner: null, pid: 1 }, [mcp("t2", false)], agents, []).length, 1);
+  const pane = D.deviceTags(claim, [{ via: "pane", address: "t3", active: true }], agents, []);
+  assert.deepEqual(pane.map((g) => [g.icon, g.label, g.tone, g.focus]), [["lock", "claude", "idle", undefined], ["triangle", "maestro", "blocked", "pane.focus"]]);
 });
 
 test("Release claim: in the menu only when claimed, after the Maestro items", () => {
