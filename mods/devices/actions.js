@@ -185,7 +185,8 @@ export const dropClaims = (ids) => Promise.all(ids.filter((id) => D.CLAIM_ID.tes
 // Every process with its parent, start and CPU time, to tell which terminal drives a device
 // and whether a claim's holder is still the same process; [] when ps fails.
 export async function readPs() {
-  const r = await exec("ps", ["-axo", "pid=,ppid=,lstart=,time=,command="]).catch(() => null);
+  // C locale and UTC: the claim hook records lstart the same way, so the texts compare.
+  const r = await exec("env", ["LC_ALL=C", "TZ=UTC", "ps", "-axo", "pid=,ppid=,lstart=,time=,command="]).catch(() => null);
   return r?.code === 0 ? D.parsePs(r.stdout) : [];
 }
 

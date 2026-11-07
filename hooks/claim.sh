@@ -41,8 +41,9 @@ printf '%s' "$id" | grep -Eq '^[A-Za-z0-9_:-][A-Za-z0-9._:-]*$' || exit 0
 mkdir -p "$claims" || exit 0
 dir=$claims/$id
 
-# when a process started, as ps prints it (trimmed); empty when it is gone
-start_of() { ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'; }
+# when a process started, as ps prints it (trimmed; C locale and UTC, so the panel's ps
+# prints the same text whatever the environment); empty when it is gone
+start_of() { LC_ALL=C TZ=UTC ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'; }
 # pid, owner and the holder's start, so a pid reused by another process later isn't taken for the holder
 claim() { echo "$me" > "$dir/pid" && echo "$label" > "$dir/owner" && start_of "$me" > "$dir/start"; }
 deny() {
@@ -60,7 +61,9 @@ if mkdir "$dir" 2>/dev/null; then claim; exit 0; fi
 held=$(head -n 1 "$dir/pid" 2>/dev/null)
 case $held in ''|*[!0-9]*) deny ;; esac   # no pid: a manual reservation
 [ "$held" = "$me" ] && exit 0
-# ps, not kill -0: that fails on another user's live process too
+# ps, not kill -0: that fails on another user's live process too. ps must be shown to
+# work (on this shell) before an empty answer counts as "gone", or the holder is denied.
+[ -n "$(start_of $$)" ] || deny
 now=$(start_of "$held")
 if [ -n "$now" ]; then
   # alive, and (when the claim recorded a start) started when the holder did: not a reused pid

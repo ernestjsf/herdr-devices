@@ -179,7 +179,7 @@ action button reads `Working…` while it runs.
   `~/.cache/herdr-devices/claims/<id>`, made by the agent with a plain `mkdir`
   (one creator wins) and holding `pid` (the agent's process), optionally
   `owner` (its first line, 40 characters at most, is the tag's label) and
-  `start` (the process's start as `ps -o lstart=` prints it, so a pid reused by
+  `start` (the process's start as `LC_ALL=C TZ=UTC ps -o lstart=` prints it, so a pid reused by
   another process later isn't taken for the holder). `<id>` is
   `claimId(d)`: what Maestro's `--device` takes, the UDID for `sim` and `ios`,
   the serial for `avd` and `phone`; an off AVD has none. At start the panel runs

@@ -108,7 +108,21 @@ test("SessionEnd with no claims folder exits 0", () => {
   assert.equal(run({ hook_event_name: "SessionEnd" }).status, 0);
 });
 
-const startOf = (pid) => spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+const startOf = (pid) => spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", env: { ...process.env, LC_ALL: "C", TZ: "UTC" } }).stdout.trim();
+
+test("the recorded start doesn't depend on the hook's time zone", () => {
+  const r = spawnSync(script, ["claude"], { input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "mcp__maestro__run", tool_input: { device_id: "TZ-1" } }), env: { HOME: home, PATH: process.env.PATH, TZ: "Asia/Tokyo", LC_ALL: "de_DE.UTF-8" }, encoding: "utf8" });
+  assert.equal(r.status, 0);
+  assert.equal(readFileSync(join(claims, "TZ-1/start"), "utf8").trim(), startOf(process.pid));
+});
+
+test("when ps can't answer, a held claim is denied, not taken over", () => {
+  hold("ABC-123", spawnSync("true").pid, "codex"); // dead, but ps is broken so that can't be known
+  const bin = join(home, "bin"); mkdirSync(bin); writeFileSync(join(bin, "ps"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const r = spawnSync(script, ["claude"], { input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "mcp__maestro__run", tool_input: { device_id: "ABC-123" } }), env: { HOME: home, PATH: `${bin}:${process.env.PATH}` }, encoding: "utf8" });
+  assert.equal(r.status, 2);
+  assert.equal(readFileSync(join(claims, "ABC-123/owner"), "utf8").trim(), "codex");
+});
 
 test("the claim records the holder's start, as ps prints it", () => {
   assert.equal(pre().status, 0);
