@@ -246,10 +246,14 @@ action button reads `Working…` while it runs.
   An AVD booting or erasing for over 10 s whose emulator `pgrep -f -- "-avd
   <name>( |$)"` no longer finds ends at once with `Couldn't boot <name>` (or
   erase) and the last non-empty line of its log, else `emulator exited`.
-- **Click a row**: it becomes `selected`. A booted simulator: `open -a Simulator`.
-  Anything else: nothing. A click never boots; the Boot icon does (an emulator
-  window has no app to activate). In the rail, which has no icons, a click
-  boots an off simulator or AVD.
+- **Click a row**: it becomes `selected`. A booted simulator or AVD: its window
+  to the front (`focusCommand`). macOS simulator: `osascript` clicks its item in
+  Simulator's Window menu (needs Accessibility access; else `open -a Simulator`);
+  macOS AVD: `osascript` sets its `qemu-system-*` process (from `pgrep`)
+  frontmost; Linux AVD: `xdotool search --name "Android Emulator - <avd>:<port>"
+  windowactivate`; Windows AVD: `WScript.Shell` `AppActivate` on that title.
+  Anything else: nothing. A click never boots; the Boot icon does. In the rail,
+  which has no icons, a click boots an off simulator or AVD.
 - **Keys**, once a row or the list was clicked (the panel's root tracks a focus
   handle): up / down move the selection through the shown rows of every open
   section, top to bottom, wrapping (with none, or one no longer shown, down

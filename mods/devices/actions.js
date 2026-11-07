@@ -1,7 +1,7 @@
 // Runs the device tools: reading the lists and doing an action. Every program
 // may be missing or hang (exec rejects then); that becomes a line in the panel
 // or an error toast, never a thrown error.
-import { exec, home, notify, shared, setShared, readTextFile, run, focused, panes, terminals } from "herdr";
+import { exec, home, notify, window as herdrWindow, shared, setShared, readTextFile, run, focused, panes, terminals } from "herdr";
 import { readdir } from "fs/promises";
 import * as D from "./devices.js";
 
@@ -224,21 +224,45 @@ export async function endWipe(d) {
   if (r?.code !== 0) notify({ level: "error", title: `Couldn't stop ${d.name}`, body: "It's erased and still running without a window: shut it down from the menu." });
 }
 
-// The row click on a booted simulator: Simulator.app to the front.
-// (An emulator's window has no app bundle to activate, so AVDs get nothing.)
+let toldAccess = false, toldXdotool = false; // each hint shows once per session
+
+// The row click on a booted device: its own window to the front. macOS: a
+// simulator via Simulator's Window menu (needs Accessibility access for Herdr,
+// else plain `open -a Simulator`), an emulator by its process; Linux: xdotool
+// on the emulator's window title (X11 only); Windows: AppActivate on that title.
 export async function focus(d) {
+  const platform = herdrWindow().platform;
+  const pid = platform === "macos" && d.kind === "avd" && d.avd ? (await emulatorPids(d.avd)).pop() : null;
+  const c = D.focusCommand(platform, d, pid);
+  if (!c) return;
+  const r = await exec(c.cmd, c.args).catch((e) => ({ code: 1, stderr: String(e?.message ?? e), missing: D.execFailure(e) === "missing" }));
+  if (r.code === 0) return;
   if (d.kind === "sim") await exec("open", ["-a", "Simulator"]).catch(() => null);
+  if (/assistive access/.test(r.stderr ?? "") && !toldAccess) {
+    toldAccess = true;
+    notify({ level: "warning", title: `Can't bring ${d.name} to the front`, body: "Give Herdr Accessibility access: System Settings → Privacy & Security → Accessibility." });
+  }
+  if (r.missing && platform === "linux" && !toldXdotool) {
+    toldXdotool = true;
+    notify({ level: "warning", title: `Can't bring ${d.name} to the front`, body: "Install xdotool to bring emulator windows to the front." });
+  }
 }
 
 // What an emulator this mod started printed.
 const emulatorLog = async (avd) => D.emulatorLogPath(await sdkEnv(), avd);
 
+// pgrep for this AVD's emulator processes; null when it couldn't run.
+const pgrep = (avd) => exec("pgrep", ["-f", "--", D.avdProcessPattern(avd)]).catch(() => null);
+
 // Whether an emulator of this AVD is running (pgrep exits 1 when none is; not
 // knowing counts as running).
 export async function emulatorRunning(avd) {
-  const r = await exec("pgrep", ["-f", "--", D.avdProcessPattern(avd)]).catch(() => null);
+  const r = await pgrep(avd);
   return r?.code !== 1;
 }
+
+// The pids of this AVD's emulator processes, oldest first.
+const emulatorPids = async (avd) => ((await pgrep(avd))?.stdout ?? "").split(/\s+/).filter(Boolean);
 
 // The last line an emulator this mod started printed before it exited.
 export async function emulatorLastLine(avd) {

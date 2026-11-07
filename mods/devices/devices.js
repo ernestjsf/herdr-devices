@@ -257,6 +257,37 @@ export function emulatorLogPath({ tmp, home, os }, avd) {
 // or the end, so Pixel_7 doesn't match Pixel_7_API_34.
 export const avdProcessPattern = (avd) => `-avd ${avd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`;
 
+// An emulator's window title on every OS: "Android Emulator - <avd>:<port>", the
+// port being the serial's digits. null when the AVD or the serial is unknown.
+export function emulatorWindowTitle(d) {
+  const port = /^emulator-(\d+)$/.exec(d.serial ?? "")?.[1];
+  return d.avd && port ? `Android Emulator - ${d.avd}:${port}` : null;
+}
+
+// Simulator's Window menu lists "<name> – iOS <ver>" (en dash); clicking the item raises that window and
+// switches Spaces, which AXRaise doesn't. Needs Accessibility access for the caller.
+const SIM_FOCUS = `on run argv
+tell application "System Events" to tell process "Simulator"
+set frontmost to true
+click (first menu item of menu "Window" of menu bar 1 whose name starts with (item 1 of argv))
+end tell
+end run`;
+
+// The command that brings a booted device's window to the front, or null when
+// this OS can't (or it has no window): `pid` is the emulator process, macOS only.
+// The sim's prefix ends in " – " so "iPhone 17 Pro" doesn't match "iPhone 17 Pro B".
+export function focusCommand(platform, d, pid) {
+  if (platform === "macos" && d.kind === "sim") return { cmd: "osascript", args: ["-e", SIM_FOCUS, "--", `${d.name} – `] };
+  if (platform === "macos" && d.kind === "avd") {
+    return /^\d+$/.test(pid ?? "") ? { cmd: "osascript", args: ["-e", `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to true`] } : null;
+  }
+  const title = d.kind === "avd" ? emulatorWindowTitle(d) : null;
+  if (!title) return null;
+  if (platform === "linux") return { cmd: "xdotool", args: ["search", "--name", title, "windowactivate"] };
+  if (platform === "windows") return { cmd: "powershell", args: ["-NoProfile", "-Command", `(New-Object -ComObject WScript.Shell).AppActivate('${title.replaceAll("'", "''")}')`] };
+  return null;
+}
+
 // The last line with something on it, or null.
 export const lastLine = (text) => (text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? null;
 
@@ -616,12 +647,12 @@ export function stepSelection(keys, selected, delta) {
   return i < 0 ? keys[delta > 0 ? 0 : keys.length - 1] : keys[(i + delta + keys.length) % keys.length];
 }
 
-// What clicking a row does: bring a booted simulator's window forward ("focus"),
-// else nothing. Booting is the hover icon's, so a stray click starts nothing;
-// the rail has no hover icons, so there a click boots an off simulator or AVD.
+// What clicking a row does: bring a booted simulator's or AVD's window forward
+// ("focus"), else nothing. Booting is the hover icon's, so a stray click starts
+// nothing; the rail has no hover icons, so there a click boots an off simulator or AVD.
 export function primaryAction(d, phase, { rail = false } = {}) {
   if (phase) return null;
-  if (d.state === "on") return d.kind === "sim" ? "focus" : null;
+  if (d.state === "on") return d.kind === "sim" || d.kind === "avd" ? "focus" : null;
   return rail && d.state === "off" && (d.kind === "sim" || (d.kind === "avd" && d.avd)) ? "boot" : null;
 }
 

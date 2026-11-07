@@ -21,7 +21,7 @@ right-click menu and it runs on that device in a pane below.
 
 ## Actions
 
-Hover a row for Boot or Shut down, Screenshot and More. Right-click for the full menu. Clicking a booted simulator brings Simulator to the front. Arrow keys, Enter, space, S and M work once the list has focus.
+Hover a row for Boot or Shut down, Screenshot and More. Right-click for the full menu. Clicking a booted simulator or emulator brings its window to the front. Arrow keys, Enter, space, S and M work once the list has focus.
 
 | Action     | Simulator                          | Android                                              |
 |------------|------------------------------------|------------------------------------------------------|
@@ -118,7 +118,7 @@ is added, with `devices` in place of `graph`.
 
 - iOS needs macOS and Xcode. The Android half should work on Linux, untested.
 - A claim without a pid file stays until released from the menu.
-- Clicking a booted AVD does nothing: the emulator window has no app bundle to activate.
+- Clicking a booted device brings its window forward. On macOS the Simulator part needs Accessibility access for Herdr (System Settings → Privacy & Security → Accessibility); on Linux it needs `xdotool` and an X11 session (Wayland can't activate windows). Linux and Windows are untested live.
 - Tested on macOS with Herdr 0.1.10. AVD erase, Android screenshots and Open URL, and connected iOS devices are covered by tests, not run live yet.
 
 ## Development

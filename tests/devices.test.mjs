@@ -536,7 +536,7 @@ test("hover icons and the row click", () => {
   assert.equal(D.primaryAction(sim("a", "on")), "focus");
   assert.equal(D.primaryAction(sim("a", "off"), "booting"), null);
   assert.equal(D.primaryAction({ kind: "avd", id: "p", avd: "p", state: "off" }), null);
-  assert.equal(D.primaryAction({ kind: "avd", id: "e", serial: "e", avd: "p", state: "on" }), null);
+  assert.equal(D.primaryAction({ kind: "avd", id: "e", serial: "e", avd: "p", state: "on" }), "focus");
   assert.equal(D.primaryAction({ kind: "phone", id: "R5", serial: "R5", state: "on" }), null);
   assert.equal(D.primaryAction({ kind: "ios", id: "U", state: "on" }), null);
   assert.deepEqual(names({ kind: "ios", id: "U", state: "on" }), ["more"]);
@@ -665,4 +665,43 @@ test("hookDetected: the plugin, or claim.sh in Claude's settings or Codex's hook
   assert.equal(D.hookDetected({ ...none, codexConfig: '[[hooks.PreToolUse]]\ncommand = "/p/hooks/claim.sh codex"' }), true);
   assert.equal(D.hookDetected(none), false);
   assert.equal(D.hookDetected({ plugins: '{"plugins":{"other@x":[]}}', claudeSettings: '{"theme":"dark"}', codexHooks: "{}" }), false);
+});
+
+test("emulatorWindowTitle takes the port from the serial", () => {
+  assert.equal(D.emulatorWindowTitle({ kind: "avd", avd: "Pixel_7", serial: "emulator-5556" }), "Android Emulator - Pixel_7:5556");
+  assert.equal(D.emulatorWindowTitle({ kind: "avd", avd: "Pixel_7" }), null);
+  assert.equal(D.emulatorWindowTitle({ kind: "avd", serial: "emulator-5554" }), null);
+  assert.equal(D.emulatorWindowTitle({ kind: "avd", avd: "Pixel_7", serial: "R5CT" }), null);
+});
+
+test("focusCommand per platform and kind", () => {
+  const avd = { kind: "avd", avd: "Pixel_7", serial: "emulator-5554" };
+  const mac = D.focusCommand("macos", { kind: "sim", name: "iPhone 17 Pro" });
+  assert.equal(mac.cmd, "osascript");
+  assert.equal(mac.args.at(-1), "iPhone 17 Pro – "); // en dash: not a prefix of "iPhone 17 Pro B"
+  assert.equal(mac.args.at(-2), "--");
+  assert.match(mac.args[1], /menu "Window"/);
+  assert.ok(!mac.args[1].includes("iPhone")); // the name travels as argv, never inside the script
+  const byPid = D.focusCommand("macos", avd, "4242");
+  assert.equal(byPid.cmd, "osascript");
+  assert.match(byPid.args[1], /unix id is 4242\) to true$/);
+  assert.deepEqual(D.focusCommand("linux", avd), { cmd: "xdotool", args: ["search", "--name", "Android Emulator - Pixel_7:5554", "windowactivate"] });
+  const win = D.focusCommand("windows", { ...avd, avd: "O'Neil" });
+  assert.equal(win.cmd, "powershell");
+  assert.equal(win.args.at(-1), "(New-Object -ComObject WScript.Shell).AppActivate('Android Emulator - O''Neil:5554')");
+});
+
+test("focusCommand is null where there is nothing to raise", () => {
+  const avd = { kind: "avd", avd: "Pixel_7", serial: "emulator-5554" };
+  assert.equal(D.focusCommand("macos", avd), null);
+  assert.equal(D.focusCommand("macos", avd, "4242; rm"), null);
+  assert.equal(D.focusCommand("linux", { kind: "avd", avd: "Pixel_7" }), null);
+  assert.equal(D.focusCommand("windows", { kind: "avd", serial: "emulator-5554" }), null);
+  for (const platform of ["macos", "linux", "windows"]) {
+    assert.equal(D.focusCommand(platform, { kind: "phone", serial: "R5", name: "Pixel" }, "1"), null);
+    assert.equal(D.focusCommand(platform, { kind: "ios", id: "U", name: "iPhone" }, "1"), null);
+  }
+  assert.equal(D.focusCommand("linux", { kind: "sim", name: "iPhone 17 Pro" }), null);
+  assert.equal(D.focusCommand("windows", { kind: "sim", name: "iPhone 17 Pro" }), null);
+  assert.equal(D.focusCommand("plan9", avd, "1"), null);
 });
