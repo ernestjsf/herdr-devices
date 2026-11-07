@@ -16,8 +16,10 @@ const MENU_ROW = 30, MENU_DIVIDER = 9;
 // Per-copy conveniences (the last list, the folds); never required.
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k) ?? "null"); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  set(k, v, replacer) { try { localStorage.setItem(k, JSON.stringify(v, replacer)); } catch {} },
 };
+// The cached list carries no app tags: they are asked again on the first read, and until then a stale one would show.
+const NO_APPS = (k, v) => (k === "apps" ? undefined : v);
 
 const INSTALL = {
   claude: "claude plugin install herdr-devices --marketplace ernestjsf/herdr-devices",
@@ -148,7 +150,7 @@ class Panel {
         const used = shared("devices.used") ?? {}, complete = which === "ios" ? !this.ios.error : !this.android.notes.length;
         const nextUsed = updateUsed(used, which, prev, this.rows(which), this.refreshedAt, complete);
         if (JSON.stringify(nextUsed) !== JSON.stringify(used)) setShared("devices.used", nextUsed);
-        store.set("cache", { ios: this.ios, android: this.android, at: this.refreshedAt });
+        store.set("cache", { ios: this.ios, android: this.android, at: this.refreshedAt }, NO_APPS);
         await this.settle();
       } finally {
         s.loading = false;

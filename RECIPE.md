@@ -102,7 +102,7 @@ action button reads `Working…` while it runs.
 
 - Agent statuses aren't shown, except as a device's driver (below): this panel
   is about devices.
-- **Start**: the last list (kept in `localStorage`, with when it was read)
+- **Start**: the last list (kept in `localStorage` without its app tags, with when it was read)
   paints at once; both platforms are read behind it.
 - **Simulators**: `xcrun simctl list devices -j`, read again whenever
   `watchFolder("~/Library/Developer/CoreSimulator/Devices")` reports a
