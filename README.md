@@ -72,7 +72,7 @@ Claude Code:
 claude plugin install herdr-devices --marketplace ernestjsf/herdr-devices
 ```
 
-The hook claims the device on any Maestro MCP call with a `device_id`, and denies the call with a reason when another live agent holds it. It takes over a dead agent's claim and releases its own at session end. A Maestro server installed as a plugin has a different tool prefix: adjust the matcher in `hooks/hooks.json`.
+The hook claims the device on any Maestro MCP call with a `device_id` that drives it (`run`; `take_screenshot` and `inspect_screen` only look, so they pass without a claim), and denies the call with a reason when another live agent holds it. It takes over a dead agent's claim and releases its own at session end. The matcher also covers a Maestro server installed as a plugin (`mcp__plugin_…_maestro__…`).
 
 Codex:
 
@@ -84,8 +84,8 @@ The script writes `~/.codex/hooks.json` when there is none, else prints the two 
 
 ```json
 {"hooks": {
-  "PreToolUse": [{"matcher": "mcp__maestro__.*", "hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}],
-  "SessionEnd": [{"hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 3}]}]
+  "PreToolUse": [{"matcher": "mcp__.*maestro.*", "hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}],
+  "SessionEnd": [{"hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}]
 }}
 ```
 

@@ -35,7 +35,11 @@ case $(field hook_event_name) in
   *) exit 0 ;;
 esac
 
-case $(field tool_name) in mcp__*maestro*) ;; *) exit 0 ;; esac
+case $(field tool_name) in
+  *__take_screenshot|*__inspect_screen) exit 0 ;;   # looking doesn't drive: no claim, never denied
+  mcp__*maestro*) ;;
+  *) exit 0 ;;
+esac
 id=$(field device_id)
 printf '%s' "$id" | grep -Eq '^[A-Za-z0-9_:-][A-Za-z0-9._:-]*$' || exit 0
 mkdir -p "$claims" || exit 0

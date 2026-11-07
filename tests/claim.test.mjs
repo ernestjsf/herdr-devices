@@ -71,6 +71,19 @@ test("no device_id: nothing claimed", () => {
   assert.equal(existsSync(claims), false);
 });
 
+test("read-only Maestro tools pass without claiming, even a held device", () => {
+  hold("ABC-123", process.ppid, "codex");
+  for (const tool of ["mcp__maestro__take_screenshot", "mcp__maestro__inspect_screen"]) assert.equal(pre({ device_id: "ABC-123" }, tool).status, 0);
+  assert.equal(pre({ device_id: "NEW-1" }, "mcp__maestro__inspect_screen").status, 0);
+  assert.equal(existsSync(join(claims, "NEW-1")), false);
+  assert.equal(pidOf("ABC-123"), String(process.ppid));
+});
+
+test("a Maestro server installed as a plugin is claimed too", () => {
+  assert.equal(pre({ device_id: "P-1" }, "mcp__plugin_x_maestro__run").status, 0);
+  assert.equal(pidOf("P-1"), String(process.pid));
+});
+
 test("other tools are ignored", () => {
   assert.equal(pre({ device_id: "ABC-123" }, "Bash").status, 0);
   assert.equal(pre({ device_id: "ABC-123" }, "mcp__other__run").status, 0);

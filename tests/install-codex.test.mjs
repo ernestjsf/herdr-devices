@@ -16,18 +16,18 @@ beforeEach(() => {
 const run = () => spawnSync(script, { env: { HOME: home, PATH: process.env.PATH }, encoding: "utf8" });
 const seed = (text) => { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, text); };
 
-test("no hooks.json: writes it with the absolute claim.sh path and a 3 s SessionEnd", () => {
+test("no hooks.json: writes it with the absolute claim.sh path and a 10 s SessionEnd", () => {
   const r = run();
   assert.equal(r.status, 0);
   assert.match(r.stdout, /Wrote .*hooks\.json\./);
   assert.match(r.stdout, /Run \/hooks in Codex to trust the hook\./);
   const { hooks } = JSON.parse(readFileSync(file, "utf8"));
   const claim = `${dirname(script)}/claim.sh codex`;
-  assert.equal(hooks.PreToolUse[0].matcher, "mcp__maestro__.*");
+  assert.equal(hooks.PreToolUse[0].matcher, "mcp__.*maestro.*");
   assert.equal(hooks.PreToolUse[0].hooks[0].command, claim);
   assert.equal(hooks.PreToolUse[0].hooks[0].timeout, 10);
   assert.equal(hooks.SessionEnd[0].hooks[0].command, claim);
-  assert.equal(hooks.SessionEnd[0].hooks[0].timeout, 3);
+  assert.equal(hooks.SessionEnd[0].hooks[0].timeout, 10);
 });
 
 test("hooks.json already has claim.sh: left alone", () => {
@@ -44,7 +44,7 @@ test("hooks.json without claim.sh: left alone, entries printed", () => {
   const r = run();
   assert.equal(r.status, 0);
   assert.match(r.stdout, /"PreToolUse".*claim\.sh codex/);
-  assert.match(r.stdout, /"SessionEnd".*"timeout": 3/);
+  assert.match(r.stdout, /"SessionEnd".*"timeout": 10/);
   assert.match(r.stdout, /Merge these into .*hooks\.json\./);
   assert.equal(readFileSync(file, "utf8"), '{"hooks":{}}');
 });
