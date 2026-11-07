@@ -176,15 +176,16 @@ export const claimsDir = () => `${home()}/.cache/herdr-devices/claims`;
 export async function readClaims() {
   const dir = claimsDir(), file = (name, f) => readTextFile(`${dir}/${name}/${f}`).catch(() => null);
   const names = (await readdir(dir, { withFileTypes: true }).catch(() => [])).filter((e) => e.isDirectory()).map((e) => e.name);
-  return D.claimsFrom(await Promise.all(names.map(async (name) => ({ name, owner: await file(name, "owner"), pid: await file(name, "pid") }))));
+  return D.claimsFrom(await Promise.all(names.map(async (name) => ({ name, owner: await file(name, "owner"), pid: await file(name, "pid"), start: await file(name, "start") }))));
 }
 
 // Removes the claim folders of `ids` (their holders are gone); a failure leaves the claim for the next read.
 export const dropClaims = (ids) => Promise.all(ids.filter((id) => D.CLAIM_ID.test(id)).map((id) => exec("rm", ["-r", `${claimsDir()}/${id}`]).catch(() => null)));
 
-// Every process with its parent and CPU time, to tell which terminal drives a device; [] when ps fails.
+// Every process with its parent, start and CPU time, to tell which terminal drives a device
+// and whether a claim's holder is still the same process; [] when ps fails.
 export async function readPs() {
-  const r = await exec("ps", ["-axo", "pid=,ppid=,time=,command="]).catch(() => null);
+  const r = await exec("ps", ["-axo", "pid=,ppid=,lstart=,time=,command="]).catch(() => null);
   return r?.code === 0 ? D.parsePs(r.stdout) : [];
 }
 

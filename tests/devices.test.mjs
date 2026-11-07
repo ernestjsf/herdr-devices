@@ -292,10 +292,13 @@ const terms = [{ address: "t1", state: "live", pid: 610, foreground: { pid: 640 
 test("ps: pid, parent, CPU seconds and the whole command", () => {
   const rows = psRows();
   assert.equal(rows.length, 15);
-  assert.deepEqual(rows[0], { pid: 1, ppid: 0, cpu: 197 * 60 + 53.15, command: "/sbin/launchd" });
+  assert.deepEqual(rows[0], { pid: 1, ppid: 0, start: null, cpu: 197 * 60 + 53.15, command: "/sbin/launchd" });
   assert.equal(rows.find((r) => r.pid === 660).command, "/usr/bin/java --enable-native-access=ALL-UNNAMED -classpath /opt/homebrew/Cellar/maestro/2.12.0/libexec/lib/* maestro.cli.AppKt mcp");
   assert.equal(D.parsePs("  5 1 1-02:00:01.50 x")[0].cpu, 86400 + 7201.5);
   assert.deepEqual(D.parsePs("\nnot ps\n"), []);
+  // With lstart (the panel asks for it): the start is kept as printed; without it, null.
+  assert.deepEqual(D.parsePs("  570     1 Thu Nov  5 09:16:37 2026       9:20.03 /usr/libexec/logd")[0], { pid: 570, ppid: 1, start: "Thu Nov  5 09:16:37 2026", cpu: 560.03, command: "/usr/libexec/logd" });
+  assert.equal(rows[0].start, null);
 });
 
 test("drivers: each simulator-server's UDID and the terminal it runs under", () => {
@@ -611,13 +614,18 @@ test("claimId: the UDID for simulators and iPhones, the serial for running Andro
 
 test("claimsFrom: owner's first line (40 characters at most) or none, pid as a number or none", () => {
   const claims = D.claimsFrom([{ name: "U-1", owner: "claude\nsecond line\n", pid: "4242\n" }, { name: "U-2", owner: null }, { name: "U-3", owner: "x".repeat(60), pid: "not a pid" }, { name: "U-4", pid: "0" }]);
-  assert.deepEqual(claims, { "U-1": { owner: "claude", pid: 4242 }, "U-2": { owner: null, pid: null }, "U-3": { owner: "x".repeat(40), pid: null }, "U-4": { owner: null, pid: null } });
+  assert.deepEqual(claims, { "U-1": { owner: "claude", pid: 4242, start: null }, "U-2": { owner: null, pid: null, start: null }, "U-3": { owner: "x".repeat(40), pid: null, start: null }, "U-4": { owner: null, pid: null, start: null } });
+  assert.equal(D.claimsFrom([{ name: "U-5", pid: "7", start: " Sat Nov  7 01:36:10 2026 \n" }])["U-5"].start, "Sat Nov  7 01:36:10 2026");
 });
 
 test("staleClaims: ids whose pid is not in ps; no pid or no rows keeps them", () => {
   const rows = psRows(), claims = { A: { pid: 640 }, B: { pid: 99999 }, C: { pid: null } };
   assert.deepEqual(D.staleClaims(claims, rows), ["B"]);
   assert.deepEqual(D.staleClaims(claims, []), []);
+  // A recorded start is compared when ps printed one: another start means the pid was reused.
+  const started = [{ pid: 640, start: "Thu Nov  5 09:16:37 2026" }];
+  assert.deepEqual(D.staleClaims({ A: { pid: 640, start: "Thu Nov  5 09:16:37 2026" }, B: { pid: 640, start: "Mon Nov  2 08:00:00 2026" }, C: { pid: 640, start: null } }, started), ["B"]);
+  assert.deepEqual(D.staleClaims({ A: { pid: 640, start: "Mon Nov  2 08:00:00 2026" } }, [{ pid: 640, start: null }]), []);
 });
 
 test("CLAIM_ID: a single safe path segment", () => {

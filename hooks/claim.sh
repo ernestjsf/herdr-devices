@@ -41,22 +41,43 @@ printf '%s' "$id" | grep -Eq '^[A-Za-z0-9_:-][A-Za-z0-9._:-]*$' || exit 0
 mkdir -p "$claims" || exit 0
 dir=$claims/$id
 
-claim() { echo "$me" > "$dir/pid" && echo "$label" > "$dir/owner"; }
+# when a process started, as ps prints it (trimmed); empty when it is gone
+start_of() { ps -o lstart= -p "$1" 2>/dev/null | sed 's/^ *//; s/ *$//'; }
+# pid, owner and the holder's start, so a pid reused by another process later isn't taken for the holder
+claim() { echo "$me" > "$dir/pid" && echo "$label" > "$dir/owner" && start_of "$me" > "$dir/start"; }
 deny() {
   owner=$(head -n 1 "$dir/owner" 2>/dev/null)
-  echo "Device $id is claimed by ${owner:-another agent} since $(stat -f %Sm "$dir" 2>/dev/null). Call list_devices and pick another device, or ask the user to release it in the Devices panel." >&2
+  since=$(stat -f %Sm "$dir" 2>/dev/null || stat -c %y "$dir" 2>/dev/null)
+  echo "Device $id is claimed by ${owner:-another agent} since $since. Call list_devices and pick another device, or ask the user to release it in the Devices panel." >&2
   exit 2
 }
 
 # plain mkdir, never -p: it is the atomic step, one creator wins
 if mkdir "$dir" 2>/dev/null; then claim; exit 0; fi
-[ -d "$dir" ] || exit 0
+# gone already (a takeover removed it between): claim it, not drive unclaimed
+[ -d "$dir" ] || { mkdir "$dir" 2>/dev/null && claim; exit 0; }
 
 held=$(head -n 1 "$dir/pid" 2>/dev/null)
 case $held in ''|*[!0-9]*) deny ;; esac   # no pid: a manual reservation
 [ "$held" = "$me" ] && exit 0
-kill -0 "$held" 2>/dev/null && deny
-# the holder is gone: take over
+# ps, not kill -0: that fails on another user's live process too
+now=$(start_of "$held")
+if [ -n "$now" ]; then
+  # alive, and (when the claim recorded a start) started when the holder did: not a reused pid
+  recorded=$(head -n 1 "$dir/start" 2>/dev/null)
+  [ -z "$recorded" ] && deny
+  [ "$now" = "$recorded" ] && deny
+fi
+# The holder is gone: take over, one hook at a time. A lock folder (mkdir again; its dot
+# keeps the panel from reading it as a claim) serializes the takeovers, and the pid is read
+# again under it, so two hooks that both saw the dead holder can't both remove and claim:
+# the second is denied and can try again. The lock goes however this script ends; one a
+# killed hook left behind is removed once it is a minute old.
+lock=$claims/.takeover.$id
+find "$claims" -maxdepth 1 -name ".takeover.$id" -mmin +1 -exec rmdir {} \; 2>/dev/null
+mkdir "$lock" 2>/dev/null || deny
+trap 'rmdir "$lock" 2>/dev/null' EXIT INT TERM HUP
+[ "$(head -n 1 "$dir/pid" 2>/dev/null)" = "$held" ] || deny
 rm -r "$dir"
 mkdir "$dir" 2>/dev/null || deny
 claim

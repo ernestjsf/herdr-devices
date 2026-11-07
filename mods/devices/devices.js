@@ -315,13 +315,14 @@ export const isMaestroPane = (t, d) => t?.state !== "finished" && (t?.name === m
 // Its run is going while the foreground is still that command: after it the pane execs the shell.
 export const maestroRunning = (t, d) => isMaestroPane(t, d) && isMaestroArgv(t.foreground?.argv, d);
 
-// `ps -axo pid=,ppid=,time=,command=` -> [{ pid, ppid, cpu, command }], cpu in
-// seconds (time is [dd-][hh:]mm:ss.ss; macOS lets minutes pass 59).
+// `ps -axo pid=,ppid=,lstart=,time=,command=` -> [{ pid, ppid, start, cpu, command }],
+// cpu in seconds (time is [dd-][hh:]mm:ss.ss; macOS lets minutes pass 59). lstart is
+// the process's start, "Sat Nov  7 01:36:10 2026" (24 characters); a listing without it reads too (start null).
 export function parsePs(text) {
   const rows = [];
   for (const line of text.split("\n")) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(?:(\d+)-)?([\d:.]+)\s+(.*)$/.exec(line);
-    if (m) rows.push({ pid: Number(m[1]), ppid: Number(m[2]), cpu: Number(m[3] ?? 0) * 86400 + m[4].split(":").reduce((n, part) => n * 60 + Number(part), 0), command: m[5] });
+    const m = /^\s*(\d+)\s+(\d+)\s+(?:([A-Z][a-z]{2} [A-Z][a-z]{2} [ \d]\d \d\d:\d\d:\d\d \d{4})\s+)?(?:(\d+)-)?([\d:.]+)\s+(.*)$/.exec(line);
+    if (m) rows.push({ pid: Number(m[1]), ppid: Number(m[2]), start: m[3] ?? null, cpu: Number(m[4] ?? 0) * 86400 + m[5].split(":").reduce((n, part) => n * 60 + Number(part), 0), command: m[6] });
   }
   return rows;
 }
@@ -389,14 +390,24 @@ export const claimId = (d) => (d.kind === "sim" || d.kind === "ios" ? d.id : d.s
 // A claim folder's name: one path segment, never `..` or a path that climbs out of the claims folder.
 export const CLAIM_ID = /^[A-Za-z0-9_:-][A-Za-z0-9._:-]*$/;
 
-// [{ name, owner, pid }] (the owner and pid files' text, if any) -> { id: { owner, pid } }:
-// the owner's first line (40 characters at most), the pid as a positive integer, else null.
+// [{ name, owner, pid, start }] (the owner, pid and start files' text, if any) -> { id: { owner, pid, start } }:
+// the owner's first line (40 characters at most), the pid as a positive integer, the holder's
+// start as ps's lstart prints it (so a reused pid isn't the holder), else null.
 export const claimsFrom = (entries) =>
-  Object.fromEntries(entries.map((e) => [e.name, { owner: e.owner?.split("\n")[0].trim().slice(0, 40) || null, pid: Number(e.pid?.trim()) > 0 ? Number(e.pid) : null }]));
+  Object.fromEntries(entries.map((e) => [e.name, { owner: e.owner?.split("\n")[0].trim().slice(0, 40) || null, pid: Number(e.pid?.trim()) > 0 ? Number(e.pid) : null, start: e.start?.trim() || null }]));
 
-// The claim ids whose pid is no longer in ps's rows. No pid: nothing to check. No rows: ps failed, so drop nothing.
+// The claim ids whose holder is gone: its pid is not in ps's rows, or is but started at another
+// time (the pid was reused; compared only when both sides know the start). No pid: nothing to
+// check. No rows: ps failed, so drop nothing.
 export const staleClaims = (claims, rows) =>
-  rows.length ? Object.keys(claims).filter((id) => claims[id].pid && !rows.some((r) => r.pid === claims[id].pid)) : [];
+  rows.length
+    ? Object.keys(claims).filter((id) => {
+        const { pid, start } = claims[id];
+        if (!pid) return false;
+        const r = rows.find((r) => r.pid === pid);
+        return !r || Boolean(start && r.start && r.start !== start);
+      })
+    : [];
 
 // Whether an agent can claim: the plugin is installed, or a hook script is wired in Claude's settings or Codex's hooks or config (the file texts, null when missing).
 export const hookDetected = ({ plugins, claudeSettings, codexHooks, codexConfig }) =>

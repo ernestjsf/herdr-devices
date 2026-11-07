@@ -177,15 +177,18 @@ action button reads `Working…` while it runs.
   found to read (no emulator was running to look).
 - **Claims**: which agent holds a device. A claim is the folder
   `~/.cache/herdr-devices/claims/<id>`, made by the agent with a plain `mkdir`
-  (one creator wins) and holding `pid` (the agent's process) and optionally
-  `owner` (its first line, 40 characters at most, is the tag's label). `<id>` is
+  (one creator wins) and holding `pid` (the agent's process), optionally
+  `owner` (its first line, 40 characters at most, is the tag's label) and
+  `start` (the process's start as `ps -o lstart=` prints it, so a pid reused by
+  another process later isn't taken for the holder). `<id>` is
   `claimId(d)`: what Maestro's `--device` takes, the UDID for `sim` and `ios`,
   the serial for `avd` and `phone`; an off AVD has none. At start the panel runs
   `mkdir -p` on the folder through `exec` (`fs/promises` writes only under the
   app's folder), reads it (`readClaims` -> `claimsFrom`), and reads again on
   every `watchFolder(dir)` change and every iOS read. On the iOS read, before
-  the one `ps`, the claims are read; `staleClaims(claims, rows)` are those whose
-  `pid` is absent from the rows, `dropClaims` runs `rm -r` on each (ids must pass
+  the one `ps` (which lists `lstart=` too), the claims are read; `staleClaims(claims, rows)` are those whose
+  `pid` is absent from the rows, or present with another start than the claim's `start`
+  (compared only when both are known), `dropClaims` runs `rm -r` on each (ids must pass
   `CLAIM_ID`), and the claims are read once more. No usable `pid`: kept. No ps
   rows: nothing dropped. The row, after the driver tag and not in the rail, has
   a tag like the idle driver tag (`muted` on `raised`, 10.5px, 16px tall, radius
@@ -197,10 +200,16 @@ action button reads `Working…` while it runs.
   **Hook** (`hooks/claim.sh <label>`, POSIX sh, no dependencies, hook JSON on stdin): the agent is the
   first ancestor of the script that is not sh, bash, zsh or dash (`ps -o ppid=,comm=`; `$PPID` if the walk
   fails). On `PreToolUse` for a tool matching `mcp__*maestro*` with a `device_id` that passes the `CLAIM_ID`
-  pattern, it `mkdir`s the claim and writes `pid` and `owner` (the label). If the folder exists: the same
-  pid passes; another live pid (`kill -0`) or no usable pid (a manual reservation) denies with exit 2 and a
-  reason on stderr; a dead pid is removed and claimed anew. On `SessionEnd` it removes the folders whose
-  pid is the agent's. Anything else, and any failure, exits 0 (fail open).
+  pattern, it `mkdir`s the claim and writes `pid`, `owner` (the label) and `start` (`ps -o lstart=`). If the folder exists: the same
+  pid passes; another live pid (`ps -o lstart= -p`, not `kill -0`, which fails on another user's process too)
+  whose start matches the recorded one (or with none recorded), or no usable pid (a manual reservation),
+  denies with exit 2 and a reason on stderr (`since` from `stat -f %Sm`, else GNU `stat -c %y`); a dead
+  or reused pid is taken over under a lock folder `.takeover.<id>` (`mkdir`; removed on exit by a trap,
+  or by the next hook once it is a minute old, should a killed hook leave it), with the pid read again
+  under it, so two hooks seeing the dead holder at once can't both claim: the second is denied. A folder
+  that vanished between the first `mkdir` and the read (a takeover removed it) is claimed with a second
+  `mkdir`, not left unclaimed. On `SessionEnd` it removes the folders whose pid is the agent's. Anything
+  else, and any failure, exits 0 (fail open).
 - **Hook hint**: under the list, above the footer, not in the rail: a `line()`
   (`Agents don't claim devices yet · Claude Code · Codex`, then a dim `×`; `line()` takes one link or an array).
   Shown while `maestroFound()` and not `hookInstalled()` (`actions.js`, read

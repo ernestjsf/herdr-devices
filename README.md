@@ -44,7 +44,7 @@ Screenshots go to `~/Desktop`. An emulator started from the panel logs to `$TMPD
 
 ## Claims
 
-Two agents driving one simulator trample each other. A claim is a folder named after the device id Maestro's `--device` takes (the UDID, or the adb serial), holding the agent's pid. The panel tags the row, offers **Release claim** in the menu, and drops the claim once that pid is gone.
+Two agents driving one simulator trample each other. A claim is a folder named after the device id Maestro's `--device` takes (the UDID, or the adb serial), holding the agent's pid (and, from the hook, its start time, so a reused pid doesn't count). The panel tags the row, offers **Release claim** in the menu, and drops the claim once that pid is gone.
 
 ```sh
 mkdir -p ~/.cache/herdr-devices/claims

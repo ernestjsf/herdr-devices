@@ -3,7 +3,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -106,4 +106,29 @@ test("SessionEnd releases my claims and no one else's", () => {
 
 test("SessionEnd with no claims folder exits 0", () => {
   assert.equal(run({ hook_event_name: "SessionEnd" }).status, 0);
+});
+
+const startOf = (pid) => spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+
+test("the claim records the holder's start, as ps prints it", () => {
+  assert.equal(pre().status, 0);
+  assert.equal(readFileSync(join(claims, "ABC-123/start"), "utf8").trim(), startOf(process.pid));
+});
+
+test("a live holder whose recorded start matches denies; a reused pid is taken over", () => {
+  hold("ABC-123", process.ppid, "codex");
+  writeFileSync(join(claims, "ABC-123/start"), `${startOf(process.ppid)}\n`);
+  const r = pre();
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /claimed by codex since \S/);
+  writeFileSync(join(claims, "ABC-123/start"), "Thu Jan  1 00:00:00 2020\n"); // the pid now belongs to another process
+  assert.equal(pre().status, 0);
+  assert.equal(pidOf("ABC-123"), String(process.pid));
+  assert.equal(readFileSync(join(claims, "ABC-123/owner"), "utf8").trim(), "claude");
+});
+
+test("a takeover leaves no folder behind", () => {
+  hold("ABC-123", spawnSync("true").pid, "codex");
+  assert.equal(pre().status, 0);
+  assert.deepEqual(readdirSync(claims), ["ABC-123"]);
 });
