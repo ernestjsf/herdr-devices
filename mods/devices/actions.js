@@ -237,7 +237,7 @@ export async function focus(d) {
   if (!c) return;
   const r = await exec(c.cmd, c.args).catch((e) => ({ code: 1, stderr: String(e?.message ?? e), missing: D.execFailure(e) === "missing" }));
   if (r.code === 0) return;
-  if (d.kind === "sim") await exec("open", ["-a", "Simulator"]).catch(() => null);
+  if (d.kind === "sim") await exec("open", ["-a", "Simulator", "--args", "-CurrentDeviceUDID", d.id]).catch(() => null); // picks the device only when it launches Simulator
   if (/assistive access/.test(r.stderr ?? "") && !toldAccess) {
     toldAccess = true;
     notify({ level: "warning", title: `Can't bring ${d.name} to the front`, body: "Give Herdr Accessibility access: System Settings → Privacy & Security → Accessibility." });
