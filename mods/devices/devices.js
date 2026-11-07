@@ -207,6 +207,11 @@ export const avdApi = (text) => {
 const MISSING_MS = 60000;
 export const stillMissing = (at, now) => at != null && now - at < MISSING_MS;
 
+// Whether a poll is due: every tick until a platform's list has read the same `after`
+// times in a row, then every `every`th tick (15 s at a 5 s tick), so an idle panel
+// polls gently. Anything that changes the list, or a watcher, Refresh or an action, reads at once.
+export const pollDue = (quiet, tick, { after = 6, every = 3 } = {}) => quiet < after || tick % every === 0;
+
 // Why exec rejected: "missing" (the program isn't there), "timeout" (exec
 // stops a program after 30 s), else "failed" (it couldn't start otherwise).
 export function execFailure(e) {

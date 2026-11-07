@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
-import { actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, driverTag, claimId, claimTag, dividerBefore, menuDividers } from "./devices.js";
+import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, driverTag, claimId, claimTag, dividerBefore, menuDividers } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
@@ -83,9 +83,10 @@ class Panel {
     hookInstalled();
     this.hintHidden = store.get("hintHidden") === true;
     // adb can only be polled (exec waits for a program to end, so
-    // `adb track-devices` can't stream). Timers run while hidden: no faster.
+    // `adb track-devices` can't stream). Timers run while hidden: no faster,
+    // and every third tick only once the list has read the same six times (`poll`).
     // The AVDs themselves are listed again only when their .ini files change.
-    cx.timer.every(5000, (cx) => this.reload(cx, "android"));
+    cx.timer.every(5000, (cx) => this.poll(cx, "android"));
     cx.spawn(async (cx) => {
       try {
         const dir = await avdHome();
@@ -94,7 +95,7 @@ class Panel {
     });
     // Simulators: their device.plist changes on boot and shutdown. Phones can
     // only be polled, and the poll is the simulators' safety net too.
-    cx.timer.every(5000, (cx) => this.reload(cx, "ios"));
+    cx.timer.every(5000, (cx) => this.poll(cx, "ios"));
     cx.spawn(async (cx) => {
       try {
         const dir = claimsDir();
@@ -115,6 +116,13 @@ class Panel {
     });
   }
 
+  // A timer tick: reads unless the platform's list has been quiet (pollDue).
+  poll(cx, which) {
+    const s = this.parts[which];
+    s.tick = (s.tick ?? 0) + 1;
+    if (pollDue(s.quiet ?? 0, s.tick)) this.reload(cx, which);
+  }
+
   // `shown`: the header spinner turns while it runs (first read, Refresh).
   // A reload asked for during one runs right after it.
   reload(cx, which, shown = false) {
@@ -124,8 +132,9 @@ class Panel {
     if (shown) this.spinning++;
     cx.spawn(async (cx) => {
       try {
-        const prev = this[which] && this.rows(which);
+        const prev = this[which] && this.rows(which), before = JSON.stringify(this[which]);
         do { s.again = false; this[which] = await (which === "ios" ? loadIos() : loadAndroid()); } while (s.again);
+        s.quiet = JSON.stringify(this[which]) === before ? (s.quiet ?? 0) + 1 : 0;
         // MCP drives simulators and iPhones only: one ps per iOS read.
         if (which === "ios") {
           // Claims before ps: a pid written before the listing is in it while alive.

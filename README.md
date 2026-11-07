@@ -16,7 +16,7 @@ right-click menu and it runs on that device in a pane below.
 - Each row shows the device type and its state: booted, off, booting or offline.
 - A booted device shows its running app as a tag (`com.example.budget` shows `budget`).
 - A second tag names who is driving it: an agent (`claude`, `codex`) through Maestro MCP, or `maestro` for the panel's own run. Click it to jump to that agent. Android devices are tagged only for the panel's own run.
-- Live: simulator changes show within a second. Android and connected iOS devices refresh every 5 s.
+- Live: simulator changes show within a second. Android and connected iOS devices refresh every 5 s, every 15 s once nothing has changed for half a minute.
 - Under 160 px the panel becomes an icon rail.
 
 ## Actions

@@ -120,14 +120,16 @@ async function simFront(d) {
 }
 
 // A simulator's user apps, the one on screen first: SpringBoard's log says
-// which, else ps tells which use CPU (ps exits 1 when a process is gone but
-// still prints the rest). Without either they stay sorted by id.
+// which (asked only with two or more apps: with one there is nothing to rank,
+// and the log read is the costliest call of a poll), else ps tells which use
+// CPU (ps exits 1 when a process is gone but still prints the rest). Without
+// either they stay sorted by id.
 async function simApps(d) {
   const r = await tool("xcrun", ["simctl", "spawn", d.id, "launchctl", "list"]);
   if (r?.code !== 0) return [];
   const apps = D.parseIosApps(r.stdout);
   if (!apps.length) return [];
-  const [ps, frontId] = await Promise.all([exec("ps", ["-o", "pid=,%cpu=,etime=", "-p", apps.map((a) => a.pid).join(",")]).catch(() => null), simFront(d)]);
+  const [ps, frontId] = await Promise.all([exec("ps", ["-o", "pid=,%cpu=,etime=", "-p", apps.map((a) => a.pid).join(",")]).catch(() => null), apps.length > 1 ? simFront(d) : null]);
   return D.rankIosApps(apps, ps?.stdout ?? "", frontId);
 }
 

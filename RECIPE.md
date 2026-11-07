@@ -122,6 +122,9 @@ action button reads `Working…` while it runs.
   com.apple.mobilesafari --payload-url <url>`, Safari only), Run Maestro
   flow… and Copy UDID.
   No apps are asked for.
+- **Polls**: both platforms every 5 s (`poll`), and every third tick once a
+  platform's list has read the same six times in a row (`pollDue`); a change,
+  a watcher, Refresh or an action reads at once.
 - **Android**: every 5 s, after Refresh and after any action: `adb devices
   -l`, and for each running `emulator-NNNN` not named yet `adb -s <serial> emu
   avd name` (first line), all at once and not awaited (a hung one can't hold up

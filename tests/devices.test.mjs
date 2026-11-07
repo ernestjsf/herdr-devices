@@ -667,6 +667,12 @@ test("hookDetected: the plugin, or claim.sh in Claude's settings or Codex's hook
   assert.equal(D.hookDetected({ plugins: '{"plugins":{"other@x":[]}}', claudeSettings: '{"theme":"dark"}', codexHooks: "{}" }), false);
 });
 
+test("polls back off to every third tick once the list has been the same six times", () => {
+  for (let tick = 1; tick <= 6; tick++) assert.equal(D.pollDue(tick - 1, tick), true);
+  assert.deepEqual([7, 8, 9, 10, 11, 12].map((tick) => D.pollDue(6, tick)), [false, false, true, false, false, true]);
+  assert.equal(D.pollDue(0, 10), true); // a change resets
+});
+
 test("emulatorWindowTitle takes the port from the serial", () => {
   assert.equal(D.emulatorWindowTitle({ kind: "avd", avd: "Pixel_7", serial: "emulator-5556" }), "Android Emulator - Pixel_7:5556");
   assert.equal(D.emulatorWindowTitle({ kind: "avd", avd: "Pixel_7" }), null);
