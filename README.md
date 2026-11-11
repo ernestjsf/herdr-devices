@@ -2,7 +2,7 @@
 
 Your iOS simulators and Android emulators in a side panel of [Herdr](https://herdr.dev), with a live screen you can tap and swipe while your agent drives the same device.
 
-![The Devices panel listing running simulators and emulators, beside a live iPhone screen being scrolled](docs/demo.gif)
+https://github.com/user-attachments/assets/d31fdbd9-b4ba-45cb-ada4-96ecc32b6af1
 
 - **Every device in one list.** Simulators, emulators, and phones over USB or Wi-Fi. Running ones on top, the rest by most recent use.
 - **A live screen in the panel.** Tap, swipe, scroll and type. It keeps up with a swipe.
