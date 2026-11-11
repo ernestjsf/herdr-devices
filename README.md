@@ -20,7 +20,7 @@ and type on it while your agent drives the same device.
 - A second tag names who is driving it, with a link icon: an agent (`claude`, `codex`) through Maestro MCP, or `maestro` for the panel's own run. Click it to jump to that agent. Android devices are tagged only for the panel's own run.
 - Live: simulator changes show within a second. Android and connected iOS devices refresh every 5 s, every 15 s once nothing has changed for half a minute.
 - Under 160 px the panel becomes an icon rail.
-- **Show screen**: the device's screen, live in the panel, taking your clicks, drags, scrolling and typing. See [The screen](#the-screen).
+- **Show screen**: the device's screen, live where the panel is, taking your clicks, drags, scrolling and typing. See [The screen](#the-screen).
 
 ## Actions
 
@@ -48,25 +48,28 @@ Screenshots go to `~/Desktop`. An emulator started from the panel logs to `$TMPD
 
 ## The screen
 
-**Show screen** (the monitor icon on a running row, or V) replaces the list with that device's screen. The arrow in the header goes back to the list and stops the stream.
+**Show screen** (the monitor icon on a running row, or V) puts that device's screen where the panel is, under a bar with its name and buttons. The arrow in the bar goes back to the list and stops the stream.
 
-- Click to tap, drag to swipe, scroll with the wheel or trackpad, and type once you've clicked the screen. ⌘ chords stay Herdr's.
-- The buttons above the screen press Home, Lock and the volume keys and rotate the device. On iOS one more shows or hides the software keyboard.
+- Click to tap, drag to swipe, scroll with the wheel or trackpad, and type once you've clicked the screen.
+- The bar's buttons press Home, Lock and the volume keys and rotate the device. On iOS one more shows or hides the software keyboard.
 - An agent can drive the device at the same time: the view only watches and sends your own touches. It takes no claim.
 
 | Device | Picture | Input |
 |--------|---------|-------|
-| iOS simulator | [serve-sim](https://github.com/EvanBacon/serve-sim)'s stream, about 30 frames a second | serve-sim |
+| iOS simulator | [serve-sim](https://github.com/EvanBacon/serve-sim)'s stream | serve-sim |
 | Android emulator | the emulator's own gRPC frames, through `android-stream.mjs` | `adb shell input` |
-| Android phone | `adb exec-out screencap`, about one a second | `adb shell input` |
+| Android phone, or an emulator started without gRPC | `adb exec-out screencap`, about two a second | `adb shell input` |
 | Connected iPhone | none: `devicectl` can't read the screen | |
 
-- The streams need Node on your login shell's `PATH`. serve-sim runs through `npx`, which downloads it from npm the first time.
-- Without Node the view falls back to screenshots, about one a second. An emulator still takes input then; a simulator is view only, and the line under the screen says so.
-- The picture is about 0.2 s behind the device, because Herdr takes that long to show a changed image. Touches and keys go at once.
-- As a panel block in a layout, give it `"props": { "panel": "<the block's id>" }` and it stops streaming while the panel is closed or on another tab. A pane can't tell whether it shows, so it streams until you go back to the list.
+How it is drawn: the screen is a terminal. A small viewer (`screen-term.mjs`, run by Node) draws the frames with the Kitty graphics protocol, which Herdr's terminals speak, so a frame is on screen a few hundredths of a second after the device made it. Herdr's own image element takes about 0.2 s to show a changed picture, which is fine for a tap and not for a swipe.
 
-The design follows [herdr-sim](https://github.com/wobsoriano/herdr-sim), which is the mod to use if the screen is all you want.
+- While the screen moves, a simulator's frames are drawn small; once it rests, the last one is drawn again at full sharpness.
+- Show screen edits the shown layout's file: the panel's block becomes a column, a bar over the viewer's terminal. Back, or the viewer ending, puts the block back as it was. When the stream fails (the device shut down), the reason stays on screen until Back or a key. Opened from a pane instead of a layout block, the viewer opens as a pane beside it (Ctrl-C closes it).
+- It needs Node on your login shell's `PATH`. serve-sim runs through `npx`, which downloads it from npm the first time.
+- A simulator also needs Xcode's `swiftc`: the first Show screen builds a small frame scaler (`frame-scale.swift`) into `~/.cache/herdr-devices/`, which takes a couple of seconds.
+- If something is off, `touch ~/.cache/herdr-devices/debug` makes the viewer log to `~/.cache/herdr-devices/screen-term.log`.
+
+serve-sim and the emulator's gRPC frames are used the way [herdr-sim](https://github.com/wobsoriano/herdr-sim) does, which is the mod to use if the screen is all you want.
 
 ## Claims
 
@@ -141,7 +144,7 @@ The script writes `~/.codex/hooks.json` when there is none, else prints the thre
 
 ## What it runs
 
-Only local tools, always as argument lists. The mod itself never reaches the network; the screen view's `npx serve-sim` downloads from npm on first use and then talks to it on localhost only.
+Only local tools, always as argument lists. The mod itself never reaches the network; the screen view's `npx serve-sim` downloads from npm on first use and then talks to it on localhost only; the viewer listens on a localhost port for the bar's buttons.
 
 It calls `xcrun simctl`, `xcrun devicectl`, `emulator`, `adb` and `maestro`, plus `ps`, `pgrep`, `find`, `open`, `sh`, `mkdir` and `rm` for process checks, flow lists, claims and erase. Android tools are found on `PATH`, then under `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` and `~/Library/Android/sdk`. It watches `~/Library/Developer/CoreSimulator` and the AVD home. The screen view adds `npx`, `node` and `nc` through your login shell, and writes its frames as image files to `~/.config/herdr-app/mods/devices-screen/`, because Herdr shows pictures from files.
 
@@ -151,8 +154,8 @@ Ask your Herdr agent:
 
 > Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/ernestjsf/herdr-devices
 
-Or copy `mods/devices/` and `mods/devices-screen/` into `~/.config/herdr-app/mods/` and run
-`herdr-app check ~/.config/herdr-app/mods/devices`. (`devices-screen` only holds the screen view's frames; the mod creates it when it's missing.)
+Or copy `mods/devices/` into `~/.config/herdr-app/mods/` and run
+`herdr-app check ~/.config/herdr-app/mods/devices`.
 
 The mod docks nowhere by itself. Open it as a pane:
 
@@ -177,7 +180,7 @@ They cover `devices.js` (parsing and command building), `screen.js` (the screen 
 - iOS needs macOS and Xcode. The Android half should work on Linux, untested.
 - A claim without a pid file stays until released from the menu or the pill's ×.
 - The window icon on a booted device brings its window forward. On macOS the Simulator part needs Accessibility access for Herdr (System Settings → Privacy & Security → Accessibility); on Linux it needs `xdotool` and an X11 session (Wayland can't activate windows). Linux and Windows are untested live.
-- The screen view needs Herdr 0.1.13 or later and has not been run in Herdr yet. Its readers, input mappings and commands are covered by tests, and the view was exercised against stand-ins for Herdr, serve-sim and the emulator, not on a real device.
+- The screen view was run on Herdr 0.1.15 with an iOS 26.5 simulator. The viewer drew an API 36 emulator's frames and pressed its Home button outside Herdr; an Android device has not been seen in the panel. It assumes a Retina display and a terminal font 0.6 as wide as its size (`HERDR_DEVICES_DPR` and `HERDR_DEVICES_CELL=<w>x<h>` override). An emulator started without `-grpc` shows screenshots, not a stream.
 - Tested on macOS with Herdr 0.1.10. AVD erase, Android screenshots and Open URL, and connected iOS devices are covered by tests, not run live yet.
 
 ## Development
