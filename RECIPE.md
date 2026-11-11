@@ -1,7 +1,8 @@
 # Devices
 
-Your iOS simulators, connected iPhones and Android emulators and phones in a
-Herdr side panel, most recently used first. Hover a device for Boot,
+Your iOS simulators and Android emulators in a Herdr side panel, with a live
+screen you can tap and swipe while your agent drives the same device. Connected
+iPhones and Android phones are listed too, most recently used first. Hover a device for Boot,
 Shut down and Screenshot. The menu adds Open URL, Run Maestro flow, Copy id,
 Stop app and Erase. Each row shows the device's state and the app it is running.
 Run Maestro flow opens a picker of the project's flows, remembers the last one
@@ -453,19 +454,26 @@ action button reads `Working…` while it runs.
     viewer ended by itself (Ctrl-C, the device went off). Herdr drops an ended
     terminal's block from the file, and then a column left with one child, so
     the bar is recognised in its column of two, alone in it, or bare.
-  - **Simulator frames**: `npx --yes serve-sim@0.1.49` through the login shell
-    (with `SERVE_SIM_DISABLE_DEVICE_HUB_KEYBOARD=1`): `--list -q` for a helper
-    already running for the device, else `--detach -q <udid>`; a helper the
-    viewer started is stopped (`--kill <udid>`) when it ends. Its `streamUrl`
+  - **Simulator frames**: a helper already running for the device is read from
+    serve-sim's own note of it, `$TMPDIR/serve-sim/server-<udid>.json` (`pid`,
+    `streamUrl`; ignored when that pid is gone); else `npx --yes
+    serve-sim@0.1.49 --detach -q <udid>` through the login shell (with
+    `SERVE_SIM_DISABLE_DEVICE_HUB_KEYBOARD=1`) starts one. A helper the viewer
+    started is ended by its pid when the viewer ends. `serve-sim --list` and
+    `--kill` are not used: each is a slow npx start, and one hanging held
+    every viewer at `Connecting…`. Its `streamUrl`
     is an MJPEG stream of full-size JPEGs. Each goes through `frame-scale`
     (built once from `frame-scale.swift` with `xcrun swiftc -O` into
-    `~/.cache/herdr-devices/`), which answers raw RGBA at the size asked for:
-    at most 656px on the long side while frames keep coming (a quarter of the
-    device's own size, the cheapest to decode), and the picture's full pixel
-    size 350 ms after the last one, from a second scaler process, compressed
-    off the main thread, and only while no finger is down. Per scaler one
-    frame is scaled at a time and the newest waiting one wins; a frame equal
-    to the last is skipped.
+    `~/.cache/herdr-devices/`), which answers a PNG at the size and colour
+    depth asked for: RGB, each row stored as its difference from the row above
+    (the Up filter), deflated at level 1. While frames keep coming: half the
+    device's own size (or the picture's, when smaller), 4 to 6 colour bits,
+    one fewer when a frame passes 360 KB and one more under 150 KB, changed at
+    most every 30 frames, through two scaler processes at once (an older
+    picture that finishes after a newer one is dropped). 250 ms after the last
+    frame, and only while no finger is down: the picture's full pixel size at
+    8 bits, from a third process. A waiting frame is replaced by a newer one;
+    a frame equal to the last is skipped.
   - **Android frames**: `android-stream.mjs` (unless `nc -z` finds it listening)
     reads the emulator's gRPC `streamScreenshot` and serves its PNGs as a
     multipart stream on `27000 + console port`, at the picture's pixel width
@@ -474,10 +482,17 @@ action button reads `Working…` while it runs.
     at most twice a second.
   - **Onto the screen**: the Kitty graphics protocol. A frame is transmitted
     and placed in one command (`a=T`, `c` and `r` the picture's cells, `C=1`,
-    `q=1`) as deflated RGBA (`f=32,o=z`) or as the PNG it is (`f=100`), in
+    `q=1`) as a PNG (`f=100`), in
     4096-byte base64 pieces, under one of two image ids in turn, and the other
     id is deleted after it, all inside synchronized output. Herdr's terminal
     takes PNG and raw pixels inline; it refuses JPEG and file paths.
+  - **The bezel**: one more picture per layout, RGBA, a cell larger than the
+    screen all round and placed over it (`z=1`): a ring up to 12px thick in
+    `#3a3a3c` with a darker line along its outer edge, hugging the screen with
+    round corners (an eighth of the screen's shorter side for a phone, 3% for
+    a tablet, 7% for Android), clear elsewhere. Where a frame's square corner
+    reaches past the ring it is painted in the terminal's background colour
+    (asked with OSC 11). The picture leaves a cell free all round for it.
   - **Cells**: the mouse is asked for in pixels (`1002`, `1006`, `1016`). A
     cell's width is 0.6 of the app's font size, its height the terminal's answer
     to `CSI 16 t` (asked at the start and after each resize; points in a tab,
@@ -654,6 +669,10 @@ action button reads `Working…` while it runs.
 - **`CSI 16 t` answers in different units**: points in a tab's terminal,
   pixels in a layout terminal block, and a fixed size before the terminal is
   shown. The width it gives is rounded, so it comes from the font size.
+- **The terminal's time for a frame follows its bytes, not its pixels**: about
+  1 ms per 30 KB sent, and 1 ms for a flat picture of any size. So resolution
+  is bought with compression: a 603x1311 frame at 5 colour bits with Up
+  filtering is ~270 KB, and takes the time a 301x655 frame of raw pixels did.
 - **A sharp frame stalls the moving ones**: it is megabytes to compress and
   push through the terminal. Drawn at every 150 ms pause it left gaps of 200 to
   900 ms and most frames undrawn; drawn late and never mid-gesture, every
