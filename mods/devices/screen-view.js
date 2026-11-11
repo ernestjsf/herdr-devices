@@ -271,7 +271,12 @@ export class ScreenView {
           this.set({ kind: "starting" }, cx);
           await this.ready();
           const session = await this.start(d);
-          if (!mine()) { session.input?.close(); return; }
+          // Gone back while it started: the helper this start made would otherwise stay running.
+          if (!mine()) {
+            session.input?.close();
+            if (session.owned && this.session?.device.id !== session.device.id) serveSim(["--kill", session.device.id]).catch(() => null);
+            return;
+          }
           this.session = session;
           cx.notify();
         }
