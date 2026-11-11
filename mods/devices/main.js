@@ -7,7 +7,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
 import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -336,14 +336,14 @@ class Panel {
     if (!this.ios && !this.android) body.push(this.line("loading", "Loading devices…", null, t));
     if (this.ios) {
       const { sections, error } = this.ios;
-      if (error) secs.push(["iOS", [], { text: error, link: error === "xcrun not found" ? LINKS.xcode : { label: "Retry", go: (cx) => this.reload(cx, "ios", true) } }]);
+      if (error) secs.push(["iOS", [], { text: error, link: error === "xcrun not found" ? LINKS.xcode : { label: "Retry", go: (cx) => { forgetTools(); this.reload(cx, "ios", true); } } }]);
       else if (!sections.length) secs.push(["iOS", [], { text: "No simulators", link: LINKS.openXcode }]);
       for (const s of sections) secs.push([s.title, s.devices, null]);
     }
     if (this.android) {
       const { devices, notes } = this.android;
       const missing = notes.some((n) => n.endsWith("not found"));
-      const empty = notes.length ? { text: notes.join(" · "), link: missing ? LINKS.sdk : { label: "Retry", go: (cx) => this.reload(cx, "android", true) } }
+      const empty = notes.length ? { text: notes.join(" · "), link: missing ? LINKS.sdk : { label: "Retry", go: (cx) => { forgetTools(); this.reload(cx, "android", true); } } }
         : devices.length ? null : { text: "No emulators or devices", link: LINKS.studio };
       secs.push(["Android", devices, empty]);
     }
@@ -363,7 +363,7 @@ class Panel {
       .child(h_flex().h(42).flex_none().px(rail ? 0 : 14).gap(8).items_center().when(rail, (el) => el.justify_center()).border_b(1).border_color(t.border)
         .when(!rail, (el) => el.child(div().font_semibold().child("Devices")).child(div().flex_1()))
         .child(div().id("refresh").size(24).flex_none().flex().items_center().justify_center().rounded(6)
-          .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { forgetAvds(); this.reloadAll(cx, true); }))
+          .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { forgetTools(); forgetAvds(); this.reloadAll(cx, true); }))
           .child(working ? svg(SPINNER).size(14).text_color(t.muted).spin(900) : svg(icon("refresh")).size(14).text_color(t.muted))))
       .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().on_click(() => this.handle.focus()).children(body))
       .when(hint, (el) => el.child(this.line("hook", "Agents don't claim devices yet", [{ label: "Claude Code", go: (cx) => copy(INSTALL.claude, cx) }, { label: "Codex", go: (cx) => copy(INSTALL.codex, cx) }], t,

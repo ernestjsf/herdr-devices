@@ -210,6 +210,8 @@ export const avdApi = (text) => {
 // polls don't try every path each time.
 const MISSING_MS = 60000;
 export const stillMissing = (at, now) => at != null && now - at < MISSING_MS;
+// The same minute, for a check that is asked again once it is that old (maestro, the claim hook).
+export const checkedLately = stillMissing;
 
 // Whether a poll is due: every tick until a platform's list has read the same `after`
 // times in a row, then every `every`th tick (15 s at a 5 s tick), so an idle panel

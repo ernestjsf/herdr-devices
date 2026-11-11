@@ -49,7 +49,7 @@ async function tool(name, args) {
 // first check answers; checked again once a minute, behind the answer. The check
 // mirrors the pane, which runs maestro under plain `sh -c`.
 export function maestroFound() {
-  if (!D.stillMissing(maestro.at, Date.now())) {
+  if (!D.checkedLately(maestro.at, Date.now())) {
     maestro.at = Date.now();
     exec("sh", ["-c", "command -v maestro"]).then((r) => r.code === 0 && !!r.stdout.trim(), () => false).then((found) => { maestro.found = found; });
   }
@@ -59,7 +59,7 @@ export function maestroFound() {
 // Whether the claim hook is installed, as last read: known (true) until the first
 // read answers, then read again once a minute, behind the answer.
 export function hookInstalled() {
-  if (!D.stillMissing(hook.at, Date.now())) {
+  if (!D.checkedLately(hook.at, Date.now())) {
     hook.at = Date.now();
     const read = (p) => readTextFile(`${home()}/${p}`).catch(() => null);
     Promise.all([".claude/plugins/installed_plugins.json", ".claude/settings.json", ".claude/settings.local.json", ".codex/hooks.json", ".codex/config.toml"].map(read))
@@ -95,6 +95,14 @@ async function avdNames(adb, wait = false) {
 
 // The AVD list is read again on the next read (an .ini in the AVD home changed, or Refresh).
 export function forgetAvds() { avdList = null; }
+
+// Refresh and Retry look again: for the tools that weren't found, the SDK's environment,
+// maestro and the claim hook (a tool installed since shows without waiting out the minute).
+export function forgetTools() {
+  for (const name of Object.keys(missing)) delete missing[name];
+  sdk = null;
+  maestro.at = hook.at = null;
+}
 
 // The AVDs (<avd home>/<name>.ini) and their API levels. Kept until
 // forgetAvds(); a missing AVD home isn't kept, so it is listed again next read.
