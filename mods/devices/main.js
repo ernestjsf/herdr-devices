@@ -1,6 +1,7 @@
 // Devices: iOS simulators and Android emulators/devices, with actions, and one device's screen
-// live in the panel (screen-view.js).
-// One mod, six roles (props.role): none, the panel; over the window "menu"
+// live where the panel is (screen-view.js).
+// One mod, seven roles: none, the panel; props.screen, the bar over a device's screen; and by
+// props.role, over the window, "menu"
 // (the right-click popup), "url", "maestro", "erase" and "claimed" (dialogs). Mod commands carry no
 // arguments, so the overlays run their action themselves and the panel
 // reloads on the shared "devices.changed".
@@ -9,7 +10,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
 import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, filterSections, splitRunning, runningDetail, footerText, avdListChanged, driversFrom, staleClaims, claimHolders, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, killEmulator, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
-import { ScreenView } from "./screen-view.js";
+import { showScreen, ScreenBar } from "./screen-view.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -102,8 +103,6 @@ class Panel {
     this.claims = {}; // device claims by id, from the claims folder
     this.holders = {}; // claim pid -> its holder's terminal, as of the last iOS read
     this.seen = shared("devices.changed");
-    // The screen view takes the panel over while it shows a device (Show screen, V).
-    this.screen = new ScreenView(this.handle, (key) => this.devices().find((r) => deviceKey(r) === key) ?? null);
     this.reload(cx, "ios", !cache);
     this.reload(cx, "android", !cache);
     maestroFound(); // checked now, so the first menu already knows
@@ -223,7 +222,11 @@ class Panel {
 
   act(action, d, cx) {
     if (action === "more") return openMenu(d, this.claimOf(d));
-    if (action === "screen") { this.handle.focus(); return this.screen.show(d, deviceKey(d), cx); }
+    if (action === "screen") {
+      if (this.showing) return; // one at a time: the first is still starting its viewer
+      this.showing = true;
+      return void cx.spawn(async () => { try { await showScreen(d); } finally { this.showing = false; } });
+    }
     if (action === "focus") return void cx.spawn(async () => focus(d));
     const quiet = action === "boot" || action === "shutdown"; // the row's glyph shows those
     if (!quiet) this.busy++;
@@ -248,7 +251,6 @@ class Panel {
   // keystrokes, so cmd-m and the like pass through. While the filter field has the keyboard only
   // up, down and Escape are the list's: a stopped key would never type, and Enter is its submit.
   key(e, cx) {
-    if (this.screen.open) return this.screen.keyDown(e, cx); // the keys are the device's
     const k = e.keystroke, d = this.visible.find((r) => deviceKey(r) === this.selected);
     if (this.typing && k !== "up" && k !== "down" && k !== "escape") return;
     const phase = d && phaseOf(d, shared("devices.pending") ?? {}), toggle = d && toggleAction(d, phase);
@@ -266,7 +268,7 @@ class Panel {
     cx.notify();
   }
 
-  // The panel's box, which the list and the screen view both fill: it holds the keyboard and knows its size.
+  // The panel's box: it holds the keyboard and knows its size.
   frame(t) {
     return v_flex().id("root").track_focus(this.handle).size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(13)
@@ -274,7 +276,6 @@ class Panel {
       .on_key_down((e, cx) => this.key(e, cx));
   }
 
-  close() { this.screen.close(); }
 
   fold(kind, title) {
     this.folds[kind][title] = !this.folds[kind][title];
@@ -415,7 +416,6 @@ class Panel {
     const asked = shared("devices.request");
     if (asked) { setShared("devices.request", null); if (Date.now() - asked.at < 10000) this.act(asked.action, asked.device, cx); }
     const t = theme(), rail = this.width > 0 && this.width < 160;
-    if (this.screen.open) return this.frame(t).on_key_up((e, cx) => this.screen.keyUp(e, cx)).children(this.screen.render(t, this.width, this.height));
     const body = [], all = []; // all: each section's { title, devices, empty }, drawn once the fit is known
     if (!this.ios && !this.android) body.push(this.line("loading", "Loading devices…", null, t));
     if (this.ios) {
@@ -725,12 +725,9 @@ class Dialog {
 export default class Devices extends View {
   init(_props, cx) {
     const role = props()?.role;
-    this.part = role === "menu" ? new Menu() : role === "url" || role === "maestro" || role === "erase" || role === "claimed" ? new Dialog() : new Panel();
+    this.part = props()?.screen ? new ScreenBar() : role === "menu" ? new Menu() : role === "url" || role === "maestro" || role === "erase" || role === "claimed" ? new Dialog() : new Panel();
     this.part.init(cx);
   }
 
   render(cx) { return this.part.render(cx); }
-
-  // The panel's screen view frees its frame files and stops the helper it started.
-  close() { this.part.close?.(); }
 }
