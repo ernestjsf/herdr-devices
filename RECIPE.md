@@ -64,10 +64,11 @@ in `foreground`. Top to bottom:
     3px out to the right and 2px down; off it is `dim`. Booting/stopping a 13px
     spinning ring in `working` takes its place; offline, unauthorized and other
     adb states a 12px filled triangle in `blocked`.
-  - **Hover icons**, at most three, 24px squares, radius 5, `raised` under the
+  - **Hover icons**, at most four, 24px squares, radius 5, `raised` under the
     pointer, 13px icons in `muted`: Shut down (power) when on or Boot (play)
     when off — simulators and AVDs, not during a phase, except Shut down while
     `booting` cancels the boot (a simulator always, an AVD once it has a serial);
+    Show screen (monitor) when on and not in a phase, where there is a screen to read;
     Screenshot (camera) when on; More (three dots) always.
   - **Fold row** under a section that has more than it shows: 24px, 32px left
     padding (the text lines up with the names), 11.5px `muted`, `Show all (N)`, and `Show fewer` once open.
@@ -111,6 +112,29 @@ fill, 12.8px, placeholder `https://… or myapp://…`), an error line at 12px
 medium): Cancel (`raised`, 1px `input` border) and the action — Open in
 `solid` / `solid_foreground`, Erase in `ansi1` with `background` text. The
 action button reads `Working…` while it runs.
+
+- **The screen view** takes the list's place while a device's screen shows
+  (Show screen). Top to bottom:
+  - **Header**, 42px, 1px `border` underneath: a 24px Back button (15px
+    `chevron-left` in `muted`, radius 6, `hover` under the pointer, tooltip
+    `Back to the devices`), the device's name at 13px semibold, truncated, and at
+    the right a 7px dot: `done` while frames arrive, `blocked` on an error, else `dim`.
+  - **Toolbar**, 28px, centered 26px icon buttons (14px icons in `muted`, radius
+    6, `hover` under the pointer, 0.4 opacity until frames arrive and whenever the
+    view can't send input): Home (`house`), Lock (`lock`), Volume down
+    (`volume-1`), Volume up (`volume-2`), Rotate (`rotate-ccw`) and, for a
+    simulator only, Keyboard (`keyboard`). Each has a tooltip.
+  - **The device**, centered in the rest with 10px padding around: a `#1c1c1e`
+    bezel with a 1px `#3a3a3c` border and 8px padding around the screen. The
+    screen keeps the frames' aspect ratio, fills the height or width it can
+    (120px tall at least), and has corners of 13% of its shorter side (the
+    bezel's 8px more).
+  - **Instead of the screen**, a black rectangle of the same shape with one 12px
+    `#8e8e93` line: `Connecting to <name>…` under a spinning ring, `<name> isn't
+    running.`, `Paused`, or an error's last line.
+  - **Mode line**, 18px, 11px `dim`, only when the picture is screenshots:
+    `Screenshots, about one a second (<why>)`, or `View only: screenshots
+    (<why>)` when there is no input either.
 
 ## How it behaves
 
@@ -415,6 +439,50 @@ action button reads `Working…` while it runs.
 - The footer's "ago" is redrawn every 10 s. Nothing animates on a background
   refresh.
 
+- **Show screen** (the `monitor` hover icon of a running row, the menu's first
+  item of the Screenshot group, or `V` on the selected row): for a booted
+  simulator, a running emulator and an authorized phone, never a connected
+  iPhone. The panel's content becomes the screen view; Back returns to the list.
+  The menu hands it to the panel through `devices.request`, like Boot.
+  - **Simulator**: `npx --yes serve-sim@0.1.49` through the login shell
+    (`"$SHELL" -lic`, with `SERVE_SIM_DISABLE_DEVICE_HUB_KEYBOARD=1`): `--list -q`
+    for a helper already running for the device, else `--detach -q <udid>`. Its
+    `streamUrl` is an MJPEG stream; input goes to `/ws` beside it. A helper the
+    view started is stopped (`--kill <udid>`) when the view lets go. When
+    serve-sim doesn't start, the view shows `xcrun simctl io <udid> screenshot
+    --type=jpeg` about twice a second, without input.
+  - **Emulator**: `android-stream.mjs` (run by `node` through the login shell,
+    unless `nc -z` finds it listening already) reads the emulator's gRPC
+    `streamScreenshot` and serves its PNGs as a multipart stream on `27000 +
+    console port`; it exits 3 s after its last viewer. When it doesn't start,
+    and for a phone, the view shows `adb -s <serial> exec-out screencap -p`
+    through `sh`'s redirect instead. Input is `adb shell input` either way.
+  - **Reading a stream**: `net.connect`, a hand-written `GET`, the response head
+    taken off and a chunked body un-chunked, then multipart parts by their
+    `Content-Length`. At most one frame per 33 ms is kept, on a due-time schedule.
+  - **Frames on screen**: each is written to the next of 12 files,
+    `mods/devices-screen/view-<n>-<i>.jpg`, and moved to the top of a stack of 12
+    absolutely placed `image()`s 200 ms later. The first frame on top ends
+    `Connecting…`.
+  - **Pointer**: press, drag and release on the picture are one finger (begin,
+    move, end) in 0..1 fractions of it; leaving the picture with the button down
+    lifts the finger where it was. The wheel scrolls (iOS: serve-sim's scroll;
+    Android: a 120 ms `input swipe` from the pointer). A press that starts in
+    the bottom 7% of a simulator carries the home-indicator edge.
+  - **Keys** go to the device while the view shows and the panel has the
+    keyboard (a click on the screen takes it): HID usages with their Control,
+    Shift and Alt on iOS, pressed and released as the keys are; on Android
+    `input keyevent`, with `keycombination 59 <code>` for Shift. `cmd` chords are
+    left to Herdr. Android coordinates use `wm size`, swapped while the frames
+    are wider than tall.
+  - **The device goes away**: the stream is dropped and the note says it isn't
+    running; when the row is on again the view connects again. An emulator that
+    came back under another serial starts a new session.
+  - **Hidden**: a copy whose props carry `panel` (its block's id in
+    `panel-body`, or `true` for `devices`) stops streaming while the `panel`
+    column is hidden or `panel-body` shows another child, and looks again every
+    500 ms. Other copies stream until Back.
+
 ## Built from
 
 - `mods/devices/`, `mod.json` `{ "place": "none", "title": "Devices" }`: it docks
@@ -436,7 +504,7 @@ action button reads `Working…` while it runs.
   avd? }`, `deviceKey` (an AVD by name, so its key survives its serial),
   `sortRecent`, `updateUsed`, `foldRows`, `fitsUnfolded`, `filterSections`, `splitRunning`,
   `runningDetail`, `settlePending`, `launchStep`, `phaseOf`, `glyphOf`,
-  `actionsFor` (the menu), `dividerBefore` and `menuDividers` (its sections), `hoverActions` (at most three), `primaryAction` (the
+  `actionsFor` (the menu), `dividerBefore` and `menuDividers` (its sections), `hoverActions` (at most four), `primaryAction` (the
   row click), `toggleAction` (space), `stepSelection` (up / down), `stepsFor` (the argv of every action), `footerText`,
   `toolCandidates`, `stillMissing`, `checkedLately`, `sameApps`, `dropClaimArgv`, `execFailure`, `rejectionLine`,
   `errorLine`, `emulatorLogPath`, `avdProcessPattern`, `lastLine`,
@@ -455,6 +523,23 @@ action button reads `Working…` while it runs.
   `~/Library/Android/sdk`; the first that starts is kept. A path that stops
   starting is dropped and the others tried again; when none starts, the tool
   is "not found" for a minute, or until Refresh or Retry (`forgetTools()`, which also reads the SDK environment again).
+- `screen.js`, no herdr import: `canShow`, `frameFiles`, `freeSlot`, `fraction`,
+  `imageAspect` (PNG, JPEG), `fitScreen`, `HttpBody`, `Multipart`, `nextDue`,
+  `serveSimArgv`, `serveSimJson`, `runningHelper`, `helperAddress`, `wsFrame`
+  and `TAG`, `ROTATE`, `touchEdge`, `keyUsages`, `androidInput`, `parseWmSize`,
+  `turned`, `streamPort`, `helperArgv`, `shotArgv`, `toolsFor`, `screenNote`,
+  `modeLine`, `shortReason`, `panelHidden`.
+- `screen-view.js`: `ScreenView` (`show`, `back`, `close`, `render`, `keyDown`,
+  `keyUp`), which the panel owns, with `SimInput` (serve-sim's socket) and
+  `AdbInput` behind one surface: `touch`, `key`, `button`, `hid`, `scroll`,
+  `rotate`, and `softwareKeyboard` on iOS. Adds `net`, `websocket`,
+  `fs/promises`' `exists`, `mkdir`, `readFile` and `writeFile`, `fetch`, and
+  herdr's `appHome` and `layout`, both read through the module object so an
+  older Herdr still loads the mod.
+- `android-stream.mjs`: the emulator's frame helper, run by node.
+- `mods/devices-screen/`: a mod that shows nothing, whose folder holds the
+  frames. The view writes its two files when the folder is missing.
+
 - Shared state: `devices.changed` (reread), `devices.pending` (phases),
   `devices.used` (last use per device), `devices.maestroLast` (folder -> the flow last run there), `devices.maestroVars` (flow -> its variables), `devices.request` (a Boot or Shut down
   from the menu, for the panel to run: taken once, ignored after 10 s). `localStorage` (per copy): `cache`
@@ -546,6 +631,33 @@ action button reads `Working…` while it runs.
   picker's filter relies on the same) and that Enter arrives as its submit. The claim pill's
   session label, program icon, idle text, holder click and `×` were not seen live.
 
+- **Frames must live in another mod's folder.** Herdr refreshes an image under
+  `mods/` when its file changes, but a write inside this mod's folder reloads
+  the mod.
+- **A changed image shows ~175 ms later, blank in between**: hence the ring of
+  files and the 200 ms before a frame goes on top. `(RING - 1) * FRAME_MS` must
+  stay above 200 ms. `image()` loads no `http://` path and no absolute one.
+- **Each view needs its own frame files**: a copy takes the lowest free
+  `view-N` from a `Set` on `globalThis` at its first Show screen and frees it in
+  `close()`. A saved mod file reloads copies without `close()`, so a slot can
+  stay taken until Herdr restarts.
+- **node's http sends a stream chunked.** Reading it by `Content-Length` alone
+  puts the chunk sizes inside the frames; `HttpBody` takes them out.
+- **`exec` takes `{ timeout }` (ms, 30 s when left out, 10 min at most)** from
+  Herdr 0.1.14: the first `npx serve-sim` downloads it and gets two minutes.
+- **No pointer capture**: `on_mouse_move` only arrives over the element, so a
+  drag that leaves the picture ends there.
+- **Herdr's `PATH` can find a broken `node`**: serve-sim and the helper start
+  through `"$SHELL" -lic`. Mods have no `setTimeout`; wait in `sh` or with
+  `cx.timer.after`.
+- **Untested live, all of the screen view**: it has not been opened in Herdr.
+  Against stand-ins (a stub of Herdr's modules, a fake MJPEG server, a fake
+  emulator gRPC server) it streams, gates to ~30 frames a second, sends the
+  pointer and keys, follows a device going off and on, pauses and falls back to
+  screenshots. Not seen: `image()` refreshing the frame files at this rate, the
+  pointer events' `local_position` and `bounds`, `on_key_up`, serve-sim's real
+  protocol and the emulator's real gRPC stream.
+
 ## Done when
 
 - `node --test tests/` passes: runtime labels, the captured simctl list (one
@@ -592,3 +704,17 @@ action button reads `Working…` while it runs.
   `stopping…` until it's off; Boot again succeeds; Screenshot writes a PNG to
   the Desktop; Open URL opens the URL; Erase resets it; Open URL on a shut-down
   simulator toasts `Unable to lookup in current state: Shutdown`.
+- `node --test tests/` also passes for `screen.js`: which devices have a
+  screen, the frame files and view slots, the pointer fraction, PNG and JPEG
+  sizes, the fit, the HTTP body (plain, chunked in pieces of any size, other
+  statuses), the multipart reader (frames across chunks, a frame larger than
+  the buffer), the frame schedule, serve-sim's argv, JSON, helper and address,
+  its input frames, the key usages, Android's touches, key codes, buttons,
+  wheel and turned size, the helper's port and start, the screenshot argv, the
+  toolbar per platform, the notes, and when the panel copy is hidden.
+- On a booted simulator, Show screen shows it within a few seconds; a drag on
+  a list scrolls it smoothly with no blank frames; typing into a focused field
+  types, Shift included; Home goes home; Back returns to the list and
+  `npx serve-sim --list` shows no helper left for it.
+- On a running emulator the same, and `pgrep -f android-stream.mjs` finds
+  nothing a few seconds after Back.

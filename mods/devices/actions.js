@@ -45,6 +45,12 @@ async function tool(name, args) {
   return null;
 }
 
+// The adb that starts, for the screen view's own commands; null when there is none.
+export async function adbPath() {
+  if (!found.adb) await tool("adb", ["version"]).catch(() => null);
+  return found.adb ?? null;
+}
+
 // Whether the maestro CLI is installed, as last checked. Known (true) until the
 // first check answers; checked again once a minute, behind the answer. The check
 // mirrors the pane, which runs maestro under plain `sh -c`.
