@@ -257,32 +257,49 @@ class Panel {
 
   row(d, c) {
     const { t, rail, pending } = c, key = deviceKey(d), phase = phaseOf(d, pending);
-    const on = d.state === "on" && !phase, drivers = deviceDrivers(d, this.drivers, c.terminals, c.agents), claim = this.claimOf(d);
-    return h_flex().id(`row-${key}`).h(26).flex_none().mx(6).pr(4).gap(8).items_center().when(rail, (el) => el.justify_center()).rounded(6).cursor_pointer().text_size(12.5)
+    const on = d.state === "on" && !phase, claim = this.claimOf(d);
+    const drivers = deviceDrivers(d, this.drivers, c.terminals, c.agents);
+    const tags = deviceTags(claim, drivers, c.agents, c.terminals);
+    const state = phase ? `${phase}…` : d.state === "on" ? "booted" : d.state;
+    const row = h_flex().id(`row-${key}`).h(26).flex_none().mx(6).pr(4).gap(8).items_center().rounded(6).cursor_pointer().text_size(12.5)
+      .when(rail, (el) => el.justify_center().tooltip(`${d.name} · ${state}`))
       .when(this.selected === key, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.click(d, phase, key, rail, cx))
       .on_mouse_down("right", (_e, cx) => { openMenu(d, this.claimOf(d)); cx.stop_propagation(); })
-      .when(rail, (el) => el.tooltip(`${d.name} · ${phase ? `${phase}…` : d.state === "on" ? "booted" : d.state}`))
       // Reserved: the run half colors this bar by space. Nothing yet.
       .child(div().w(2).h(14).flex_none().rounded(1))
-      .child(div().size(14).flex_none().child(this.glyph(glyphOf(d, phase), d, t)))
-      .when(!rail, (el) => el
-        .child(div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name))
-        .when(Boolean(d.apps?.length), (n) => n.child(div().id(`app-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4).bg(t.done + "1f").text_size(10.5).font_medium().text_color(t.done).tooltip(d.apps.join(", ")).child(appSegment(d.apps[0]))))
-        .children(deviceTags(claim, drivers, c.agents, c.terminals).map((g, i, all) => this.tag(g, i && all.length > 1 ? `driver-${key}` : `tag-${key}`, t)))
-        .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
-        .child(div().flex_1())
-        // Right-aligned before the icons. A simulator's version is its section's title already.
-        .when(d.kind !== "sim" && Boolean(d.detail), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail)))
-        // Icons sit dim at the right edge and brighten under the pointer: gpui-kit has no
-        // hover groups, and redrawing the panel on every row hover made it lag.
-        .child(h_flex().flex_none().opacity(0.4).hover((s) => s.opacity(1)).children(hoverActions(d, phase).map((a) =>
-          div().id(`b-${a.action}-${key}`).size(24).flex_none().flex().items_center().justify_center().rounded(5)
-            .hover((s) => s.bg(t.raised))
-            .on_click((_e, cx) => { cx.stop_propagation(); this.act(a.action, d, cx); })
-            .tooltip(a.label)
-            .child(svg(icon(a.icon)).size(13).text_color(t.muted))))));
+      .child(div().size(14).flex_none().child(this.glyph(glyphOf(d, phase), d, t)));
+    if (rail) return row;
+    // Left to right: name, app tag, agent tag(s), phase, then right-aligned the detail and the icons.
+    return row
+      .child(div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name))
+      .when(Boolean(d.apps?.length), (n) => n.child(this.appTag(d, key, t)))
+      .children(tags.map((g, i) => this.tag(g, i && tags.length > 1 ? `driver-${key}` : `tag-${key}`, t)))
+      .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
+      .child(div().flex_1())
+      // A simulator's version is its section's title already.
+      .when(d.kind !== "sim" && Boolean(d.detail), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail)))
+      // Icons sit dim at the right edge and brighten under the pointer: gpui-kit has no
+      // hover groups, and redrawing the panel on every row hover made it lag.
+      .child(h_flex().flex_none().opacity(0.4).hover((s) => s.opacity(1)).children(hoverActions(d, phase).map((a) => this.hoverIcon(a, d, key, t))));
+  }
+
+  // The running app's tag: the last segment of the app in front; the tooltip lists them all.
+  appTag(d, key, t) {
+    return div().id(`app-${key}`).flex_none().max_w(96).truncate().px(5).h(16).rounded(4)
+      .bg(t.done + "1f").text_size(10.5).font_medium().text_color(t.done)
+      .tooltip(d.apps.join(", "))
+      .child(appSegment(d.apps[0]));
+  }
+
+  // One of a row's hover icons (hoverActions).
+  hoverIcon(a, d, key, t) {
+    return div().id(`b-${a.action}-${key}`).size(24).flex_none().flex().items_center().justify_center().rounded(5)
+      .hover((s) => s.bg(t.raised))
+      .on_click((_e, cx) => { cx.stop_propagation(); this.act(a.action, d, cx); })
+      .tooltip(a.label)
+      .child(svg(icon(a.icon)).size(13).text_color(t.muted));
   }
 
   // The agent pill, shaped like the app tag: an icon for the relationship (lock claimed, link
@@ -290,9 +307,11 @@ class Panel {
   // else muted), then the program's key. With a driver it brightens under the pointer, unlike the
   // app tag: a click focuses the first driver's terminal.
   tag({ icon: ic, label, tone, tip, focus, terminal }, id, t) {
-    const idle = tone === "idle";
-    return h_flex().id(id).flex_none().max_w(96).truncate().items_center().gap(3).px(5).h(16).rounded(4).bg(idle ? t.raised : t[tone] + "1f").text_size(10.5).font_medium().text_color(idle ? t.muted : t[tone])
-      .when(Boolean(focus), (el) => el.hover((s) => s.bg(idle ? t.hover : t[tone] + "40").text_color(idle ? t.foreground : t[tone]))
+    const idle = tone === "idle", color = idle ? t.muted : t[tone];
+    return h_flex().id(id).flex_none().max_w(96).truncate().items_center().gap(3).px(5).h(16).rounded(4)
+      .bg(idle ? t.raised : t[tone] + "1f").text_size(10.5).font_medium().text_color(color)
+      .when(Boolean(focus), (el) => el
+        .hover((s) => s.bg(idle ? t.hover : t[tone] + "40").text_color(idle ? t.foreground : color))
         .on_click((_e, cx) => { cx.stop_propagation(); run(focus, { terminal }); }))
       .tooltip(tip)
       .child(svg(icon(ic)).size(10).flex_none())
