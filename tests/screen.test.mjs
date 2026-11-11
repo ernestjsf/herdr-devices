@@ -19,6 +19,9 @@ test("which devices have a screen to show", () => {
 });
 
 test("image sizes from a PNG and a JPEG", () => {
+  assert.deepEqual(S.imageSize(png(1080, 2400)), { width: 1080, height: 2400 });
+  assert.deepEqual(S.imageSize(jpeg(1206, 2622)), { width: 1206, height: 2622 });
+  assert.equal(S.imageSize(bytes("nope")), null);
   assert.equal(S.imageAspect(png(540, 1170)), 540 / 1170);
   assert.equal(S.imageAspect(jpeg(1206, 2622)), 1206 / 2622);
   assert.equal(S.imageAspect(jpeg(2622, 1206)), 2622 / 1206);
