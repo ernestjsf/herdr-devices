@@ -63,7 +63,7 @@ function cellSize() {
   if (FIXED_CELL) return { w: Number(FIXED_CELL[1]), h: Number(FIXED_CELL[2]) };
   try {
     const st = JSON.parse(execFileSync("herdr-app", ["status"], { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] }));
-    points = st.font_size * (st.zoom ?? 1);
+    points = st.font_size; // already scaled by the app's zoom
   } catch {}
   return { w: points * 0.6 * DPR, h: points * (18 / 14) * DPR };
 }
