@@ -301,9 +301,11 @@ async function avdFolder(name) {
 }
 
 // Shared so the menu and dialogs (other copies) and the panel agree:
-// "devices.pending" (boot / shut down under way), "devices.used" (last action per device)
+// "devices.pending" (boot / shut down under way), "devices.used" (last action per device),
 // "devices.maestroLast" (folder -> the flow last run there) and "devices.maestroVars"
-// (flow -> its Variables field).
+// (flow -> its Variables field). Two more are signals, set directly: "devices.changed"
+// (a time: every panel reads again) and "devices.request" (a Boot or Shut down the menu
+// hands to the panel).
 export function mark(name, key, value) {
   const next = { ...(shared(name) ?? {}) };
   if (value === undefined) delete next[key];

@@ -37,14 +37,27 @@ Hover a row for Boot or Shut down, Screenshot and More. Right-click for the full
 | Release claim | `rm -r` of the claim folder     | the same                                             |
 
 - **Run Maestro flow…** lists the flows in the tab's `.maestro` folder, or another folder via Browse…. Variables pass as `maestro test -e`. The last flow and its variables are remembered, and the menu offers **Run *flow* again**. Flows should launch the app themselves, since the mod only runs `maestro test`.
-- **Erase…** asks first.
+- **Erase…** asks first. So does a Maestro run on a device an agent has claimed.
 - Connected iPhones and iPads offer only Open URL…, Run Maestro flow… and Copy UDID. Open URL opens in Safari, so custom schemes don't resolve.
 
 Screenshots go to `~/Desktop`. An emulator started from the panel logs to `$TMPDIR/herdr-devices-<avd>.log`.
 
 ## Claims
 
-Two agents driving one simulator trample each other. A claim is a folder named after the device id Maestro's `--device` takes (the UDID, or the adb serial), holding the agent's pid (and, from the hook, its start time, so a reused pid doesn't count). The panel tags the row with one pill (a lock, the owner's name; coloured like a driver while its agent drives the device, a triangle beside it if a different program drives it), offers **Release claim** in the menu, and drops the claim once that pid is gone.
+Two agents driving one simulator trample each other. A claim says "this device is mine".
+
+- A claim is a folder named after the device id Maestro's `--device` takes: the UDID, or the adb serial.
+- It holds the agent's pid. The hook also records the agent's start time, so a reused pid doesn't count.
+- The panel drops a claim once its pid is gone, and offers **Release claim** in the menu.
+
+The row shows one pill for the agent:
+
+| Pill | Meaning |
+|------|---------|
+| lock, grey | claimed, and the owner isn't driving right now |
+| lock, coloured | claimed, and the owner is driving (or attached and blocked) |
+| link | driven by an agent, with no claim |
+| lock, then a triangle pill | claimed by one program, driven by another |
 
 ```sh
 mkdir -p ~/.cache/herdr-devices/claims
@@ -72,7 +85,17 @@ Claude Code:
 claude plugin install herdr-devices --marketplace ernestjsf/herdr-devices
 ```
 
-The hook claims the device on any Maestro MCP call with a `device_id` that drives it (`run`; `take_screenshot` and `inspect_screen` only look, so they pass without a claim), and denies the call with a reason when another live agent holds it. It takes over a dead agent's claim and releases its own at session end. The matcher also covers a Maestro server installed as a plugin (`mcp__plugin_…_maestro__…`).
+The hook claims the device on any Maestro MCP call with a `device_id` that drives it (`run`; `take_screenshot` and `inspect_screen` only look, so they pass without a claim), and denies the call with a reason when another live agent holds it. It takes over a dead agent's claim and releases its own at session end.
+
+- A denial lists the booted simulators (and Android devices, while an adb server runs) nobody has claimed, so the agent can switch to one.
+- Every Maestro call by the holder, looking included, counts as use, when it starts and when it ends. A claim its live holder hasn't used for 15 minutes can be taken over by the next agent that asks. `HERDR_DEVICES_IDLE_MIN` changes the minutes. A claim made by hand never goes idle.
+ The matcher also covers a Maestro server installed as a plugin (`mcp__plugin_…_maestro__…`). Web runs (`device_id: chromium`) are never claimed.
+
+After the plugin changes, update it, then restart Claude Code:
+
+```sh
+claude plugin marketplace update herdr-devices && claude plugin update herdr-devices@herdr-devices
+```
 
 Codex:
 
@@ -80,11 +103,12 @@ Codex:
 git clone https://github.com/ernestjsf/herdr-devices ~/.codex/herdr-devices && sh ~/.codex/herdr-devices/hooks/install-codex.sh
 ```
 
-The script writes `~/.codex/hooks.json` when there is none, else prints the two entries to merge into it, and never edits an existing file. Codex asks you to trust the hook: run `/hooks`. The entries it writes:
+The script writes `~/.codex/hooks.json` when there is none, else prints the three entries to merge into it, and never edits an existing file. Codex asks you to trust the hook: run `/hooks`. The entries it writes:
 
 ```json
 {"hooks": {
   "PreToolUse": [{"matcher": "mcp__.*maestro.*", "hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}],
+  "PostToolUse": [{"matcher": "mcp__.*maestro.*", "hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}],
   "SessionEnd": [{"hooks": [{"type": "command", "command": "/path/to/herdr-devices/hooks/claim.sh codex", "timeout": 10}]}]
 }}
 ```
@@ -113,6 +137,14 @@ herdr-app do pane.split --direction right --mod devices
 Or add a Devices button next to Files and Changes the same way
 [git-graph's Graph button](https://github.com/rabeeh-ta/herdr-git-graph/blob/main/docs/top-bar.md)
 is added, with `devices` in place of `graph`.
+
+## Tests
+
+```sh
+node --test tests/
+```
+
+They cover `devices.js` (parsing and command building) and the hook scripts. The panel itself is checked with `herdr-app check mods/devices`.
 
 ## Limits
 

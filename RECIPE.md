@@ -192,8 +192,9 @@ action button reads `Working…` while it runs.
   every `watchFolder(dir)` change and every iOS read. On the iOS read, before
   the one `ps` (which lists `lstart=` too), the claims are read; `staleClaims(claims, rows)` are those whose
   `pid` is absent from the rows, or present with another start than the claim's `start`
-  (compared only when both are known), `dropClaims` runs `rm -r` on each (ids must pass
-  `CLAIM_ID`), and the claims are read once more. No usable `pid`: kept. No ps
+  (compared only when both are known), `dropClaims` removes each (`dropClaimArgv`: ids must pass
+  `CLAIM_ID`; under the hook's `.takeover.<id>` lock folder, and only while the `pid` file
+  still names that holder, so a takeover since keeps its claim), and the claims are read once more. No usable `pid`: kept. No ps
   rows: nothing dropped. The row has one agent pill, not in the rail (same shape as the
   app tag: 16px tall, 5px side padding, radius 4, 10.5px medium, 96px at most, truncated),
   a 10px icon, 3px gap, then the program key. Icon = relationship: `lock` claimed, `link`
@@ -211,10 +212,14 @@ action button reads `Working…` while it runs.
   first ancestor of the script that is not sh, bash, zsh or dash (`ps -o ppid=,comm=`; `$PPID` if the walk
   fails). On `PreToolUse` for a tool matching `mcp__*maestro*` with a `device_id` that passes the `CLAIM_ID`
   pattern, it `mkdir`s the claim and writes `pid`, `owner` (the label) and `start` (`ps -o lstart=`). If the folder exists: the same
-  pid passes; another live pid (`ps -o lstart= -p`, not `kill -0`, which fails on another user's process too)
+  pid passes and stamps the claim (`touch` of its `pid` file, on `PostToolUse` too, which does nothing else; `take_screenshot` and `inspect_screen` stamp too,
+  and otherwise pass without a claim; `device_id` `chromium`, Maestro's web browser, is never claimed); another live pid (`ps -o lstart= -p`, not `kill -0`, which fails on another user's process too)
   whose start matches the recorded one (or with none recorded), or no usable pid (a manual reservation),
-  denies with exit 2 and a reason on stderr (`since` from `stat -f %Sm`, else GNU `stat -c %y`); a dead
-  or reused pid is taken over under a lock folder `.takeover.<id>` (`mkdir`; removed on exit by a trap,
+  denies with exit 2 and a reason on stderr (`since` from `stat -f %Sm`, else GNU `stat -c %y`; then the
+  booted devices with no claim folder as `name (id)`, from `xcrun simctl list devices booted` and, only while
+  an adb server runs, `adb devices`, listed in the background and given 3 s at most, else the advice to call `list_devices`); a dead
+  or reused pid, or a live holder with a recorded start whose `pid` file is older than 15 minutes
+  (`HERDR_DEVICES_IDLE_MIN`; checked again under the lock), is taken over under a lock folder `.takeover.<id>` (`mkdir`; removed on exit by a trap,
   or by the next hook once it is a minute old, should a killed hook leave it), with the pid read again
   under it, so two hooks seeing the dead holder at once can't both claim: the second is denied. A folder
   that vanished between the first `mkdir` and the read (a takeover removed it) is claimed with a second
@@ -363,7 +368,10 @@ action button reads `Working…` while it runs.
 
 - `mods/devices/`, `mod.json` `{ "place": "none", "title": "Devices" }`: it docks
   nowhere by itself.
-- `main.js`: one `View` with five roles by `props().role`: none, the panel;
+- `main.js`: one `View` with six roles by `props().role`: none, the panel;
+  `"claimed"`, a dialog the menu opens instead of Run Maestro flow or Run again on a claimed device
+  (`props: { role, device, owner, next, path, cwd }`; "<name> is claimed", Cancel and Run anyway, which
+  does what the row would have);
   `"menu"`, the popup (`openOverlay({ mod: "devices", kind: "popup", width: 250,
   height, props: { role: "menu", device, cwd, lastFlow } })`); `"url"`, `"erase"` and
   `"maestro"`, dialogs (`kind: "dialog", width: 420, height: 200 | 212, props:
@@ -379,7 +387,7 @@ action button reads `Working…` while it runs.
   `phaseOf`, `glyphOf`,
   `actionsFor` (the menu), `dividerBefore` and `menuDividers` (its sections), `hoverActions` (at most three), `primaryAction` (the
   row click), `toggleAction` (space), `stepSelection` (up / down), `stepsFor` (the argv of every action), `footerText`,
-  `toolCandidates`, `stillMissing`, `execFailure`, `rejectionLine`,
+  `toolCandidates`, `stillMissing`, `checkedLately`, `sameApps`, `dropClaimArgv`, `execFailure`, `rejectionLine`,
   `errorLine`, `emulatorLogPath`, `avdProcessPattern`, `lastLine`,
   `screenshotPath`, `validUrl`, `maestroArgv`, `parseVars`, `maestroPaneName`, `isMaestroPane`, `flowsDefault`, `findFlowsArgv`,
   `flowRows` (find's paths -> `{ label, sub, path }`), `maestroRunning`, `parsePs`,
@@ -387,14 +395,14 @@ action button reads `Working…` while it runs.
   `deviceDrivers`, `driverTag`, `claimId`, `CLAIM_ID`, `claimsFrom`, `staleClaims`, `deviceTags`, `hookDetected`.
 - `actions.js`: `loadIos()`, `loadAndroid()`, `bootCompleted(serial)`,
   `emulatorRunning(avd)`, `emulatorLastLine(avd)`, `endWipe(device)`,
-  `avdHome()`, `forgetAvds()`, `focus(device)`, `maestroCwd()`, `maestroStart()`,
+  `avdHome()`, `forgetAvds()`, `forgetTools()`, `killEmulator(avd)`, `focus(device)`, `maestroCwd()`, `maestroStart()`,
   `runMaestro(device, path, cwd, vars)`, `readPs()`, `readClaims()`, `hookInstalled()`, `dropClaims(ids)` and `perform(action, device, { url })`
   through `exec`. `adb` and `emulator` are tried from the path that
   worked last, then PATH, `$ANDROID_HOME`, `$ANDROID_SDK_ROOT` (read once with
   `$ANDROID_AVD_HOME`, `$TMPDIR` and `uname -s` by `sh -c 'printf …'`) and
   `~/Library/Android/sdk`; the first that starts is kept. A path that stops
   starting is dropped and the others tried again; when none starts, the tool
-  is "not found" for a minute.
+  is "not found" for a minute, or until Refresh or Retry (`forgetTools()`, which also reads the SDK environment again).
 - Shared state: `devices.changed` (reread), `devices.pending` (phases),
   `devices.used` (last use per device), `devices.maestroLast` (folder -> the flow last run there), `devices.maestroVars` (flow -> its variables), `devices.request` (a Boot or Shut down
   from the menu, for the panel to run: taken once, ignored after 10 s). `localStorage` (per copy): `cache`
