@@ -181,8 +181,11 @@ export async function readClaims() {
   return D.claimsFrom(await Promise.all(names.map(async (name) => ({ name, owner: await file(name, "owner"), pid: await file(name, "pid"), start: await file(name, "start") }))));
 }
 
-// Removes the claim folders of `ids` (their holders are gone); a failure leaves the claim for the next read.
-export const dropClaims = (ids) => Promise.all(ids.filter((id) => D.CLAIM_ID.test(id)).map((id) => exec("rm", ["-r", `${claimsDir()}/${id}`]).catch(() => null)));
+// Removes the claim folders of `ids` (their holders, `claims[id].pid`, are gone); a failure leaves the claim for the next read.
+export const dropClaims = (ids, claims) => Promise.all(ids.filter((id) => D.CLAIM_ID.test(id)).map((id) => {
+  const [cmd, ...args] = D.dropClaimArgv(claimsDir(), id, claims[id].pid);
+  return exec(cmd, args).catch(() => null);
+}));
 
 // Every process with its parent, start and CPU time, to tell which terminal drives a device
 // and whether a claim's holder is still the same process; [] when ps fails.

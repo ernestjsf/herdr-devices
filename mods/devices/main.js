@@ -143,7 +143,7 @@ class Panel {
           this.claims = await readClaims(); // the watcher's safety net too
           const rows = await readPs(), stale = staleClaims(this.claims, rows);
           ({ drivers: this.drivers, cpu: this.cpu } = driversFrom(rows, terminals(), this.cpu));
-          if (stale.length) { await dropClaims(stale); this.claims = await readClaims(); } // holders gone
+          if (stale.length) { await dropClaims(stale, this.claims); this.claims = await readClaims(); } // holders gone
         }
         this.refreshedAt = Date.now();
         // Read failed or partial: keep the recents it can't vouch for.

@@ -446,6 +446,16 @@ export const staleClaims = (claims, rows) =>
       })
     : [];
 
+// Removes a stale claim, in step with claim.sh's takeover: under the same lock folder
+// (.takeover.<id>; one a killed hook left is removed once a minute old), and only while the
+// pid file still names the holder that was seen gone, so a takeover since keeps its fresh claim.
+const DROP = 'dir=$1/$2; lock=$1/.takeover.$2; find "$1" -maxdepth 1 -name ".takeover.$2" -mmin +1 -exec rmdir {} \\; 2>/dev/null; '
+  + 'mkdir "$lock" 2>/dev/null || exit 0; trap \'rmdir "$lock" 2>/dev/null\' EXIT; [ "$(head -n 1 "$dir/pid" 2>/dev/null | tr -d "[:space:]")" = "$3" ] && rm -r "$dir"; exit 0';
+export function dropClaimArgv(claimsDir, id, pid) {
+  if (!CLAIM_ID.test(id ?? "") || !/^\/./.test(claimsDir ?? "") || !(pid > 0)) throw new Error(`Unexpected claim: ${claimsDir}/${id}`);
+  return ["sh", "-c", DROP, "sh", claimsDir, id, String(pid)];
+}
+
 // Whether an agent can claim: the plugin is installed for the user (a `local` install belongs
 // to one project, which may not be this one), or a hook script is wired in Claude's settings
 // (user or local) or Codex's hooks or config (the file texts, null when missing).
