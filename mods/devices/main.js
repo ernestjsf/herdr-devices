@@ -9,7 +9,7 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
 import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, filterSections, splitRunning, runningDetail, footerText, avdListChanged, driversFrom, staleClaims, claimHolders, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, killEmulator, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, killEmulator, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, forgetHook, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 import { showScreen, ScreenBar } from "./screen-view.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
@@ -32,6 +32,32 @@ const INSTALL = {
 function copy(text, cx) {
   cx.write_to_clipboard(text);
   notify({ level: "success", title: "Copied", body: text, timeout: 2000 });
+}
+
+// What the hint's links run. The same as INSTALL, except: `command`, past a shell function named
+// claude, and a clone that is already there is updated instead of failing.
+const SETUP = {
+  claude: { name: "Claude Code", run: `command ${INSTALL.claude}`, after: "Restart your Claude Code sessions to load it." },
+  codex: { name: "Codex", run: "{ [ -d ~/.codex/herdr-devices/.git ] && git -C ~/.codex/herdr-devices pull -q --ff-only || git clone -q https://github.com/ernestjsf/herdr-devices ~/.codex/herdr-devices; } && sh ~/.codex/herdr-devices/hooks/install-codex.sh" },
+};
+
+// Sets the claim hook up for a harness, through the login shell (its PATH has the harness and
+// git). When it fails the command goes on the clipboard, to run by hand.
+function setUp(which, cx) {
+  const { name, run, after } = SETUP[which];
+  notify({ level: "info", title: `Setting up ${name}…`, timeout: 3000 });
+  cx.spawn(async (cx) => {
+    const r = await exec("sh", ["-c", 'exec "${SHELL:-/bin/zsh}" -lic "$1"', "sh", run], { timeout: 180000 }).catch((e) => ({ code: 1, stdout: "", stderr: String(e?.message ?? e) }));
+    const said = (r.code === 0 ? r.stdout : r.stderr || r.stdout).trim().split("\n").slice(-2).join("\n");
+    if (r.code === 0) {
+      forgetHook();
+      notify({ level: "success", title: `${name} now claims devices`, body: [said, after].filter(Boolean).join("\n"), timeout: 8000 });
+    } else {
+      cx.write_to_clipboard(INSTALL[which]);
+      notify({ level: "error", title: `Couldn't set up ${name}`, body: `${said}\nThe command is on the clipboard: run it in a terminal.` });
+    }
+    cx.notify();
+  });
 }
 
 function openDialog(role, d, extra = {}, height = role === "url" ? 200 : 212) {
@@ -456,7 +482,7 @@ class Panel {
       .when(!rail, (el) => el.child(v_flex().flex_none().px(8).pt(8).pb(2)
         .child(Input.new(this.filter).h(28).px(8).rounded(7).border_1().border_color(this.typing ? t.accent : t.border).bg(t.background).text_size(12).text_color(t.foreground))))
       .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().on_click(() => this.handle.focus()).children(body))
-      .when(hint, (el) => el.child(this.line("hook", "Agents don't claim devices yet", [{ label: "Claude Code", go: (cx) => copy(INSTALL.claude, cx) }, { label: "Codex", go: (cx) => copy(INSTALL.codex, cx) }], t,
+      .when(hint, (el) => el.child(this.line("hook", "Agents don't claim devices yet", [{ label: "Set up Claude Code", go: (cx) => setUp("claude", cx) }, { label: "Codex", go: (cx) => setUp("codex", cx) }], t,
         (cx) => { this.hintHidden = true; store.set("hintHidden", true); cx.notify(); })))
       .when(!rail, (el) => el.child(h_flex().h(28).flex_none().px(14).items_center().border_t(1).border_color(t.border).text_size(11).text_color(t.dim)
         .child(div().min_w(0).truncate().child(footerText(this.rows("ios"), this.android?.devices ?? [], this.refreshedAt, Date.now())))));
