@@ -1,36 +1,15 @@
-// The screen view's pure half: no herdr import, so node can test it. Which devices have a screen
-// to show, the frame files, the multipart reader, image sizes, the pointer and key mappings for
-// serve-sim (iOS) and `adb shell input` (Android), and the argv of everything the view runs.
-// The streaming design (serve-sim's MJPEG and /ws input, the emulator's gRPC frames, the ring of
-// frame files) follows Robert Soriano's herdr-sim (MIT), https://github.com/wobsoriano/herdr-sim.
-
-// A changed image keeps its old picture for ~175 ms, then reloads, blank meanwhile. So frames
-// rotate through a ring of files stacked under the one on show, and each moves to the top
-// RELOAD_MS after it was written. The ring must outlast that: (RING - 1) * FRAME_MS > RELOAD_MS.
-export const RING = 12;
-export const RELOAD_MS = 200;
-export const FRAME_MS = 33; // ~30 a second
-export const SCREEN_MOD = "devices-screen";
-// Decoded by content, so PNG frames keep the .jpg name too.
-export const frameFiles = (view) => Array.from({ length: RING }, (_, i) => `mods/${SCREEN_MOD}/${view}-${i}.jpg`);
-
-// The lowest free view-N: each view needs its own frame files, and a fresh name per view would
-// leave its decoded images behind.
-export function freeSlot(taken) {
-  for (let i = 1; ; i++) if (!taken.has(`view-${i}`)) return `view-${i}`;
-}
+// The screen view's pure half: no herdr import, so node can test it and the viewer
+// (screen-term.mjs, run by node) can share it. Which devices have a screen to show, the stream
+// readers, image sizes, the key mappings for serve-sim (iOS) and `adb shell input` (Android),
+// the argv of what the view runs, and the layout edit that puts the viewer's terminal where the
+// panel was. serve-sim's MJPEG and /ws input and the emulator's gRPC frames are used the way
+// Robert Soriano's herdr-sim (MIT) does, https://github.com/wobsoriano/herdr-sim.
 
 // A booted simulator, a running emulator or an authorized phone. A connected iPhone has no
 // screen to read (devicectl has no screenshot).
 export const canShow = (d) => d.state === "on" && (d.kind === "sim" || ((d.kind === "avd" || d.kind === "phone") && Boolean(d.serial)));
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-
-// The pointer as a 0..1 fraction of the element it is over; null before its first paint.
-export function fraction(e) {
-  const p = e.local_position, b = e.bounds;
-  return p && b && b.width > 0 && b.height > 0 ? { x: clamp(p.x / b.width, 0, 1), y: clamp(p.y / b.height, 0, 1) } : null;
-}
 
 // Width over height, from a PNG's IHDR or a JPEG's start-of-frame; null for anything else.
 export function imageAspect(bytes) {
@@ -51,12 +30,6 @@ export function imageAspect(bytes) {
     i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3]);
   }
   return null;
-}
-
-// The screen's box inside `width` x `height`, at the device's aspect, with the bezel's corners.
-export function fitScreen(aspect, width, height) {
-  const h = Math.max(120, Math.min(height, width / aspect)), w = Math.round(h * aspect);
-  return { w, h: Math.round(h), radius: Math.round(Math.min(w, h) * 0.13) };
 }
 
 // An HTTP response read off a raw socket: push() what the socket gave and get back the body's
@@ -148,10 +121,6 @@ export class Multipart {
     return length ? b.subarray(start, end) : null;
   }
 }
-
-// When the next frame may be written: a schedule rather than a gap since the last write, or
-// uneven arrivals skip two frames where one would do. null: not due yet.
-export const nextDue = (due, now, every = FRAME_MS) => (now >= due ? Math.max(due, now - every) + every : null);
 
 // ---- iOS: serve-sim ----
 
@@ -282,13 +251,6 @@ export function helperArgv(script, serial, width = 540) {
   return ["sh", "-c", sh, "sh", script, p.console, String(p.port), String(width)];
 }
 
-// One screenshot into `path`, for a device without a stream. simctl writes the file itself; adb's
-// PNG goes through the shell's redirect (exec's own stdout is text and would corrupt it).
-export function shotArgv(d, path, adb = "adb") {
-  if (d.kind === "sim") return ["xcrun", "simctl", "io", d.id, "screenshot", "--type=jpeg", path];
-  return ["sh", "-c", '"$1" -s "$2" exec-out screencap -p > "$3"', "sh", adb, d.serial, path];
-}
-
 // The view's toolbar, left to right. `press` names the input's method and its arguments.
 export const CONSUMER = 12; // the HID consumer page, where volume up is 233 and down 234
 const TOOLS = [
@@ -301,42 +263,59 @@ const TOOLS = [
 ];
 export const toolsFor = (d) => TOOLS.filter((b) => !b.only || b.only === d.kind);
 
-// The line shown in place of the picture; null once frames arrive.
-export function screenNote(phase, name) {
-  switch (phase.kind) {
-    case "live": return null;
-    case "starting": return `Connecting to ${name}…`;
-    case "off": return `${name} isn't running.`;
-    case "hidden": return "Paused";
-    case "error": return phase.message || "Couldn't show the screen.";
-    default: return null;
-  }
+
+// ---- the viewer and its place in the layout ----
+
+// Starts screen-term.mjs through the login shell, whose PATH finds a working node. `port`: where
+// the viewer listens for the bar's buttons. `adb`: its path, for an Android device.
+export function viewerArgv(script, d, port, adb = "") {
+  const sim = d.kind === "sim";
+  return ["sh", "-c", 'exec "${SHELL:-/bin/zsh}" -lic \'exec node "$@"\' node "$@"', "sh", script, sim ? "sim" : "android", sim ? d.id : d.serial, d.name, String(port), adb];
 }
 
-// Under the picture: why it is slow or can't be touched. null when it is a live stream with input.
-export function modeLine(session) {
-  if (!session || session.mode !== "poll") return null;
-  const why = session.why ? ` (${session.why})` : "";
-  return session.input ? `Screenshots, about one a second${why}` : `View only: screenshots${why}`;
+export const BAR = 42; // the bar over the viewer, px
+
+// A layout with `mod`'s block turned into a column: the mod again as a bar (its props plus
+// `screen`), over the viewer's terminal. The column keeps the block's id and size, so a stack
+// that shows it still does; `screen.was` remembers them too, for unwrapScreen. null when the
+// layout has no such block (the mod is a pane in a tab).
+export function wrapScreen(layout, mod, terminal, screen) {
+  let done = false;
+  const visit = (node) => {
+    if (done || !node || typeof node !== "object") return node;
+    if (node.type === "block" && node.content?.mod === mod && !node.content.props?.screen) {
+      done = true;
+      const { type: _type, content, ...rest } = node, id = node.id ?? mod, was = { id, ...(node.size && { size: node.size }) };
+      return { ...rest, id, type: "column", children: [
+        { id: `${id}-bar`, type: "block", size: { px: BAR }, content: { mod, props: { ...content.props, screen: { ...screen, terminal, was } } } },
+        { id: `${id}-screen`, type: "block", content: { terminal } },
+      ] };
+    }
+    return Array.isArray(node.children) ? { ...node, children: node.children.map(visit) } : node;
+  };
+  const next = visit(layout);
+  return done ? next : null;
 }
 
-// The last line of what a failed start printed, short enough for the line under the picture.
-export function shortReason(e) {
-  const line = String(e?.message ?? e ?? "").trim().split("\n").pop().trim();
-  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
-}
-
-function find(node, id) {
-  if (node?.id === id) return node;
-  for (const child of node?.children ?? []) { const hit = find(child, id); if (hit) return hit; }
-  return null;
-}
-
-// Whether the panel copy is out of sight: its column hidden, or the stack on another child.
-// `block`: the id the layout gives this mod's block in `panel-body` (its props' `panel`). A copy
-// without one (a pane) can't tell, and counts as shown.
-export function panelHidden(root, block) {
-  if (!block) return false;
-  const panel = find(root, "panel");
-  return !panel || panel.hidden === true || find(root, "panel-body")?.active !== block;
+// The reverse: the mod's block again, with the id, size and props it had. Herdr rewrites the
+// file when the viewer's terminal ends, dropping its block and then a column left with one
+// child, so the bar is found in all three shapes: in its column of two, alone in it, or bare.
+// `terminal`: only that screen's (any, when left out). null when there is none.
+export function unwrapScreen(layout, mod, terminal) {
+  let done = false;
+  const isBar = (node) => node?.type === "block" && node.content?.mod === mod && node.content.props?.screen && (!terminal || node.content.props.screen.terminal === terminal);
+  const block = (bar, rest) => {
+    done = true;
+    const { screen, ...props } = bar.content.props, was = screen.was ?? {};
+    const { size: _size, ...kept } = rest;
+    return { ...kept, id: was.id ?? rest.id, ...(was.size && { size: was.size }), type: "block", content: Object.keys(props).length ? { mod, props } : { mod } };
+  };
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return node;
+    if (node.type === "column" && isBar(node.children?.[0]) && node.children.every((c, i) => i === 0 || c.content?.terminal)) { const { children, type: _type, ...rest } = node; return block(children[0], rest); }
+    if (isBar(node)) { const { content: _content, type: _type, ...rest } = node; return block(node, rest); }
+    return Array.isArray(node.children) ? { ...node, children: node.children.map(visit) } : node;
+  };
+  const next = visit(layout);
+  return done ? next : null;
 }

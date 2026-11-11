@@ -18,37 +18,12 @@ test("which devices have a screen to show", () => {
   assert.ok(!S.canShow({ kind: "ios", id: "U", state: "on" }));
 });
 
-test("frame files: a ring per view in the screen mod's folder, and the lowest free view", () => {
-  const files = S.frameFiles("view-2");
-  assert.equal(files.length, S.RING);
-  assert.equal(files[0], "mods/devices-screen/view-2-0.jpg");
-  assert.equal(new Set(files).size, S.RING);
-  assert.ok((S.RING - 1) * S.FRAME_MS > S.RELOAD_MS); // a file isn't rewritten while on show
-  assert.equal(S.freeSlot(new Set()), "view-1");
-  assert.equal(S.freeSlot(new Set(["view-1", "view-3"])), "view-2");
-});
-
-test("the pointer as a fraction of the screen", () => {
-  const bounds = { x: 40, y: 90, width: 200, height: 400 };
-  assert.deepEqual(S.fraction({ local_position: { x: 50, y: 300 }, bounds }), { x: 0.25, y: 0.75 });
-  assert.deepEqual(S.fraction({ local_position: { x: -5, y: 500 }, bounds }), { x: 0, y: 1 });
-  assert.equal(S.fraction({ position: { x: 1, y: 1 } }), null); // not painted yet
-  assert.equal(S.fraction({ local_position: { x: 1, y: 1 }, bounds: { x: 0, y: 0, width: 0, height: 0 } }), null);
-});
-
 test("image sizes from a PNG and a JPEG", () => {
   assert.equal(S.imageAspect(png(540, 1170)), 540 / 1170);
   assert.equal(S.imageAspect(jpeg(1206, 2622)), 1206 / 2622);
   assert.equal(S.imageAspect(jpeg(2622, 1206)), 2622 / 1206);
   assert.equal(S.imageAspect(bytes("not an image at all, just some text")), null);
   assert.equal(S.imageAspect(new Uint8Array(0)), null);
-});
-
-test("the screen fits the space at the device's aspect", () => {
-  assert.deepEqual(S.fitScreen(0.5, 300, 400), { w: 200, h: 400, radius: 26 }); // height bound
-  assert.deepEqual(S.fitScreen(0.5, 100, 400), { w: 100, h: 200, radius: 13 }); // width bound
-  assert.deepEqual(S.fitScreen(2, 300, 400), { w: 300, h: 150, radius: 20 }); // turned
-  assert.equal(S.fitScreen(0.5, 300, 20).h, 120); // never smaller than a thumb
 });
 
 test("the multipart reader: frames across chunks, parts without a length", () => {
@@ -104,13 +79,6 @@ test("the HTTP body: the head comes off, a chunked body loses its framing, other
   assert.equal(b.done, true);
   assert.throws(() => new S.HttpBody().push(bytes("HTTP/1.1 404 Not Found\r\n\r\n")), /answered 404/);
   assert.throws(() => new S.HttpBody().push(bytes("SSH-2.0-OpenSSH\r\n\r\n")), /isn't HTTP/);
-});
-
-test("frames are due on a schedule", () => {
-  assert.equal(S.nextDue(0, 1000), 1000 + 0); // the first: due at once, next one a frame later
-  assert.equal(S.nextDue(1033, 1020), null); // early
-  assert.equal(S.nextDue(1033, 1040), 1066); // a little late: the schedule holds
-  assert.equal(S.nextDue(1033, 5000), 5000); // long quiet: starts again from now
 });
 
 test("serve-sim: its argv, its JSON, the device's helper and its address", () => {
@@ -199,36 +167,49 @@ test("the emulator's frame helper: its port and how it starts", () => {
   assert.equal(S.helperArgv("/h/x.mjs", "R5CT123"), null);
 });
 
-test("screenshots for a view without a stream", () => {
-  assert.deepEqual(S.shotArgv({ kind: "sim", id: "UDID-1" }, "/h/f.jpg"), ["xcrun", "simctl", "io", "UDID-1", "screenshot", "--type=jpeg", "/h/f.jpg"]);
-  const argv = S.shotArgv({ kind: "phone", id: "R5", serial: "R5" }, "/h/a b.jpg", "/sdk/platform-tools/adb");
-  assert.deepEqual(argv.slice(3), ["sh", "/sdk/platform-tools/adb", "R5", "/h/a b.jpg"]); // words, not script text
-  assert.equal(argv[2], '"$1" -s "$2" exec-out screencap -p > "$3"');
-});
-
-test("the toolbar per platform, the notes and the mode line", () => {
+test("the toolbar per platform", () => {
   assert.deepEqual(S.toolsFor({ kind: "sim" }).map((b) => b.id), ["home", "lock", "volume-down", "volume-up", "rotate", "keyboard"]);
   assert.deepEqual(S.toolsFor({ kind: "avd" }).map((b) => b.id), ["home", "lock", "volume-down", "volume-up", "rotate"]);
   assert.deepEqual(S.toolsFor({ kind: "sim" })[2].press, ["hid", 12, 234]);
-  assert.equal(S.screenNote({ kind: "live" }, "iPhone 17"), null);
-  assert.equal(S.screenNote({ kind: "starting" }, "iPhone 17"), "Connecting to iPhone 17…");
-  assert.equal(S.screenNote({ kind: "off" }, "Pixel 9"), "Pixel 9 isn't running.");
-  assert.equal(S.screenNote({ kind: "error", message: "adb not found" }, "Pixel 9"), "adb not found");
-  assert.equal(S.screenNote({ kind: "error", message: "" }, "Pixel 9"), "Couldn't show the screen.");
-  assert.equal(S.modeLine(null), null);
-  assert.equal(S.modeLine({ mode: "stream", input: {} }), null);
-  assert.equal(S.modeLine({ mode: "poll", input: {}, why: null }), "Screenshots, about one a second");
-  assert.equal(S.modeLine({ mode: "poll", input: null, why: "serve-sim didn't start: it needs Node" }), "View only: screenshots (serve-sim didn't start: it needs Node)");
-  assert.equal(S.shortReason(new Error("first\nthe reason")), "the reason");
-  assert.equal(S.shortReason("x".repeat(200)).length, 80);
 });
 
-test("the panel copy knows when it is out of sight", () => {
-  const layout = (hidden, active) => ({ id: "root", children: [{ id: "sidebar" }, { id: "panel", hidden, children: [{ id: "panel-body", active, children: [{ id: "files" }, { id: "devices" }] }] }] });
-  assert.equal(S.panelHidden(layout(false, "devices"), "devices"), false);
-  assert.equal(S.panelHidden(layout(true, "devices"), "devices"), true);
-  assert.equal(S.panelHidden(layout(false, "files"), "devices"), true);
-  assert.equal(S.panelHidden({ id: "root", children: [] }, "devices"), true);
-  assert.equal(S.panelHidden(layout(true, "files"), null), false); // a pane can't tell
-  assert.equal(S.panelHidden(undefined, null), false);
+test("the viewer's argv: through the login shell, a simulator by udid, Android by serial with adb", () => {
+  const sim = S.viewerArgv("/h/mods/devices/screen-term.mjs", { kind: "sim", id: "U-1", name: "iPhone 17 Pro" }, 27412);
+  assert.deepEqual(sim.slice(0, 2), ["sh", "-c"]);
+  assert.match(sim[2], /-lic 'exec node "\$@"' node "\$@"$/);
+  assert.deepEqual(sim.slice(3), ["sh", "/h/mods/devices/screen-term.mjs", "sim", "U-1", "iPhone 17 Pro", "27412", ""]);
+  const avd = S.viewerArgv("/s.mjs", { kind: "avd", id: "Pixel_9", serial: "emulator-5554", name: "Pixel 9" }, 27400, "/sdk/adb");
+  assert.deepEqual(avd.slice(4), ["/s.mjs", "android", "emulator-5554", "Pixel 9", "27400", "/sdk/adb"]);
+});
+
+test("the layout: the panel's block becomes a bar over the viewer's terminal, and back", () => {
+  const block = { id: "devices", type: "block", size: { weight: 1 }, content: { mod: "devices", props: { panel: true } } };
+  const layout = { id: "root", type: "row", children: [{ id: "work", type: "block", content: { tab: "active" } },
+    { id: "panel-body", type: "stack", active: "devices", children: [{ id: "files", type: "block", content: { mod: "files" } }, block] }] };
+  const screen = { device: { kind: "sim", id: "U-1", name: "iPhone" }, terminal: "t9", port: 27401 };
+  const wrapped = S.wrapScreen(layout, "devices", "t9", screen);
+  // The column takes the block's id and size, so the stack still shows it.
+  assert.deepEqual(wrapped.children[1].children[1], { id: "devices", size: { weight: 1 }, type: "column", children: [
+    { id: "devices-bar", type: "block", size: { px: S.BAR }, content: { mod: "devices", props: { panel: true, screen: { ...screen, was: { id: "devices", size: { weight: 1 } } } } } },
+    { id: "devices-screen", type: "block", content: { terminal: "t9" } },
+  ] });
+  assert.equal(wrapped.children[1].active, "devices");
+  assert.deepEqual(layout.children[1].children[1], block); // the tree it was given is untouched
+  // A second screen has no block left to take; a layout without the mod has none at all.
+  assert.equal(S.wrapScreen(wrapped, "devices", "t10", screen), null);
+  assert.equal(S.wrapScreen({ id: "root", type: "block", content: { tab: "active" } }, "devices", "t9", screen), null);
+  // Back: the block again, with the props it had. Another terminal's column is left alone.
+  assert.deepEqual(S.unwrapScreen(wrapped, "devices", "t9"), layout);
+  assert.deepEqual(S.unwrapScreen(wrapped, "devices"), layout);
+  assert.equal(S.unwrapScreen(wrapped, "devices", "t10"), null);
+  assert.equal(S.unwrapScreen(layout, "devices"), null);
+  // Herdr drops an ended terminal's block, then a column left with one child: both come back whole.
+  const column = wrapped.children[1].children[1], bar = column.children[0];
+  const inStack = (node) => ({ ...layout, children: [layout.children[0], { ...layout.children[1], children: [layout.children[1].children[0], node] }] });
+  assert.deepEqual(S.unwrapScreen(inStack({ ...column, children: [bar] }), "devices", "t9"), layout);
+  assert.deepEqual(S.unwrapScreen(inStack(bar), "devices", "t9"), layout);
+  // A block without props or an id comes back without props, under the mod's name.
+  const bare = S.wrapScreen({ type: "column", children: [{ type: "block", content: { mod: "devices" } }] }, "devices", "t9", screen);
+  assert.equal(bare.children[0].id, "devices");
+  assert.deepEqual(S.unwrapScreen(bare, "devices").children[0], { id: "devices", type: "block", content: { mod: "devices" } });
 });
