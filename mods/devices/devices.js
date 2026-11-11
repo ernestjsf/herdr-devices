@@ -182,6 +182,10 @@ export function parseAndroidApp(text) {
   return m && !ANDROID_SYSTEM.test(m[1]) ? [m[1]] : [];
 }
 
+// Whether two app lists show the same: the same app in front (the row's tag) and the same
+// apps behind it (the menu's Stop rows), in any order, since CPU use reorders those every read.
+export const sameApps = (a, b) => a[0] === b[0] && [...a].sort().join() === [...b].sort().join();
+
 // "com.example.budget" -> "budget"
 export const appSegment = (id) => id.split(".").pop();
 

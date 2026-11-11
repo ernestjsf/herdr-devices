@@ -146,9 +146,9 @@ function withApps(devices) {
     const ask = d.kind === "sim" ? simApps(d) : tool("adb", ["-s", d.serial, "shell", "dumpsys", "activity", "activities"]).then((r) => (r?.code === 0 ? D.parseAndroidApp(r.stdout) : []));
     ask.catch(() => [])
       .then((ids) => {
-        const changed = (apps[key] ?? []).join() !== ids.join();
+        if (D.sameApps(apps[key] ?? [], ids)) return; // the old order stays, so the list reads the same
         apps[key] = ids;
-        if (changed) setShared("devices.changed", Date.now());
+        setShared("devices.changed", Date.now());
       })
       .finally(() => askingApps.delete(key));
   }

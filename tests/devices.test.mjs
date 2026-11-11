@@ -734,3 +734,11 @@ test("focusCommand is null where there is nothing to raise", () => {
   assert.equal(D.focusCommand("windows", { kind: "sim", name: "iPhone 17 Pro" }), null);
   assert.equal(D.focusCommand("plan9", avd, "1"), null);
 });
+
+test("sameApps: the same front app and the same apps behind it, in any order", () => {
+  assert.equal(D.sameApps([], []), true);
+  assert.equal(D.sameApps(["a", "b", "c"], ["a", "c", "b"]), true);
+  assert.equal(D.sameApps(["a", "b"], ["b", "a"]), false);
+  assert.equal(D.sameApps(["a", "b"], ["a"]), false);
+  assert.equal(D.sameApps([], ["a"]), false);
+});
