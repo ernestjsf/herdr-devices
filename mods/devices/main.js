@@ -224,6 +224,7 @@ class Panel {
   act(action, d, cx) {
     if (action === "more") return openMenu(d, this.claimOf(d));
     if (action === "screen") { this.handle.focus(); return this.screen.show(d, deviceKey(d), cx); }
+    if (action === "focus") return void cx.spawn(async () => focus(d));
     const quiet = action === "boot" || action === "shutdown"; // the row's glyph shows those
     if (!quiet) this.busy++;
     cx.spawn(async (cx) => {
@@ -255,7 +256,7 @@ class Panel {
     else if (k === "escape" && this.filter.value()) this.filter.set_value("");
     else if (k === "escape" && this.selected) this.selected = null;
     else if (!d) return;
-    else if (k === "enter") this.click(d, phase, this.selected, false, cx);
+    else if (k === "enter" && hoverActions(d, phase).some((a) => a.action === "focus")) this.act("focus", d, cx);
     else if (k === "space" && toggle) this.act(toggle, d, cx);
     else if (k === "s" && hoverActions(d, phase).some((a) => a.action === "screenshot")) this.act("screenshot", d, cx);
     else if (k === "v" && hoverActions(d, phase).some((a) => a.action === "screen")) this.act("screen", d, cx);
@@ -486,7 +487,7 @@ class Menu {
     if (this.claim && (a.action === "maestro" || a.action === "maestroAgain")) { closeOverlay(overlay); openDialog("claimed", d, { owner: this.claim.owner, next: a.action, path: a.path, cwd: this.cwd }); return; }
     if (a.action === "maestroAgain") { closeOverlay(overlay); runAgain(d, a.path, this.cwd); return; }
     if (a.action === "openurl" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : a.action, d); return; }
-    if (a.action === "boot" || a.action === "shutdown" || a.action === "screen") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
+    if (a.action === "boot" || a.action === "shutdown") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
     this.busy = i;
     cx.spawn(async (cx) => {
       if (a.action === "maestro") { await openPicker(d); closeOverlay(overlay); return; }

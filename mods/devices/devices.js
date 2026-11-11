@@ -316,8 +316,6 @@ export function actionsFor(d, { lastFlow, maestro = true, claim = false } = {}) 
     if (on) list.push({ action: "shutdown", label: "Shut down", icon: "power", hint: "space" });
     else if (d.state === "off") list.push({ action: "boot", label: "Boot", icon: "play", hint: "space" });
   } else if (d.kind === "avd" && on) list.push({ action: "shutdown", label: "Shut down", icon: "power", hint: "space" });
-  // The screen, live in the panel: where there is one to read (not a connected iPhone).
-  if (on && (d.kind === "sim" || d.serial)) list.push({ action: "screen", label: "Show screen", icon: "monitor", hint: "V" });
   // devicectl has no screenshot.
   if (on && d.kind !== "ios") list.push({ action: "screenshot", label: "Screenshot", icon: "camera", hint: "S" });
   if (on) list.push({ action: "openurl", label: "Open URL…", icon: "link" });
@@ -745,12 +743,17 @@ export function footerText(ios, android, refreshedAt, now) {
   return parts.join(" · ");
 }
 
-// A row's hover icons, at most four: boot or shut down, show screen, screenshot, more
+// A row's hover icons, at most five: boot or shut down, bring its window forward, show screen,
+// screenshot, more
 // (the full menu, where Erase lives). A boot under way can be cancelled where a
 // shutdown runs (the menu's, as if booted): simctl shuts a booting simulator, adb emu kill needs the serial.
 export function hoverActions(d, phase) {
-  const list = actionsFor(d).filter((a) => (a.action === "boot" || a.action === "shutdown" ? !phase : a.action === "screenshot" || (a.action === "screen" && !phase)));
+  const list = actionsFor(d).filter((a) => (a.action === "boot" || a.action === "shutdown" ? !phase : a.action === "screenshot"));
   if (phase === "booting" && (d.kind === "sim" || (d.kind === "avd" && d.serial))) list.unshift(actionsFor({ ...d, state: "on" })[0]);
+  // After the power icon: a booted simulator or AVD has a window to bring forward.
+  if (!phase && d.state === "on" && (d.kind === "sim" || d.kind === "avd")) list.splice(1, 0, { action: "focus", label: "Bring window forward", icon: "app-window" });
+  // The screen, live in the panel: where there is one to read (not a connected iPhone). Not in the menu.
+  if (!phase && d.state === "on" && (d.kind === "sim" || d.serial)) list.splice(list.findIndex((a) => a.action === "screenshot"), 0, { action: "screen", label: "Show screen (V)", icon: "monitor" });
   return [...list, { action: "more", label: "More", icon: "more" }];
 }
 
@@ -766,16 +769,17 @@ export function stepSelection(keys, selected, delta) {
   return i < 0 ? keys[delta > 0 ? 0 : keys.length - 1] : keys[(i + delta + keys.length) % keys.length];
 }
 
-// What clicking a row does: bring a booted simulator's or AVD's window forward
-// ("focus"), else nothing. Booting is the hover icon's, so a stray click starts
-// nothing; the rail has no hover icons, so there a click boots an off simulator or AVD.
+// What clicking a row does besides selecting it: nothing in the panel, where the hover icons
+// boot it and bring its window forward, so a click to select never switches windows. The rail
+// has no hover icons, so there a click brings a booted simulator's or AVD's window forward
+// ("focus") and boots an off one.
 export function primaryAction(d, phase, { rail = false } = {}) {
   if (phase) return null;
-  if (d.state === "on") return d.kind === "sim" || d.kind === "avd" ? "focus" : null;
+  if (d.state === "on") return rail && (d.kind === "sim" || d.kind === "avd") ? "focus" : null;
   return rail && d.state === "off" && (d.kind === "sim" || (d.kind === "avd" && d.avd)) ? "boot" : null;
 }
 
 // The menu's sections, in actionsFor's order: a divider sits where the group changes.
-const MENU_GROUP = { boot: "power", shutdown: "power", screen: "view", screenshot: "view", openurl: "view", maestro: "maestro", maestroAgain: "maestro", release: "claim", copyapp: "app", stop: "app", copy: "copy", erase: "erase" };
+const MENU_GROUP = { boot: "power", shutdown: "power", screenshot: "view", openurl: "view", maestro: "maestro", maestroAgain: "maestro", release: "claim", copyapp: "app", stop: "app", copy: "copy", erase: "erase" };
 export const dividerBefore = (items, i) => i > 0 && MENU_GROUP[items[i].action] !== MENU_GROUP[items[i - 1].action];
 export const menuDividers = (items) => items.filter((_a, i) => dividerBefore(items, i)).length;
