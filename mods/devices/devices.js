@@ -270,11 +270,12 @@ export function emulatorWindowTitle(d) {
 }
 
 // Simulator's Window menu lists "<name> – iOS <ver>" (en dash); clicking the item raises that window and
-// switches Spaces, which AXRaise doesn't. Needs Accessibility access for the caller.
+// switches Spaces, which AXRaise doesn't. The click comes before the activation, so Simulator's last window doesn't flash first.
+// Needs Accessibility access for the caller.
 const SIM_FOCUS = `on run argv
 tell application "System Events" to tell process "Simulator"
-set frontmost to true
 click (first menu item of menu "Window" of menu bar 1 whose name starts with (item 1 of argv))
+set frontmost to true
 end tell
 end run`;
 
