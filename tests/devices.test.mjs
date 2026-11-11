@@ -194,11 +194,11 @@ test("screenshot path and url check", () => {
 
 test("actions per row", () => {
   const names = (d) => D.actionsFor(d).map((a) => a.action);
-  assert.deepEqual(names({ kind: "sim", id: "U", state: "on" }), ["shutdown", "screenshot", "openurl", "maestro", "copy", "erase"]);
+  assert.deepEqual(names({ kind: "sim", id: "U", state: "on" }), ["shutdown", "screen", "screenshot", "openurl", "maestro", "copy", "erase"]);
   assert.deepEqual(names({ kind: "sim", id: "U", state: "off" }), ["boot", "copy", "erase"]);
-  assert.deepEqual(names({ kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "a", state: "on" }), ["shutdown", "screenshot", "openurl", "maestro", "copy"]);
+  assert.deepEqual(names({ kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "a", state: "on" }), ["shutdown", "screen", "screenshot", "openurl", "maestro", "copy"]);
   assert.deepEqual(names({ kind: "avd", id: "a", avd: "a", state: "off" }), ["boot", "copy", "erase"]);
-  assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screenshot", "openurl", "maestro", "copy"]);
+  assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screen", "screenshot", "openurl", "maestro", "copy"]);
   assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "unauthorized" }), ["copy"]);
   // A device over devicectl: no boot, screenshot or erase.
   const ios = { kind: "ios", id: "00008120-0000000000000002", name: "iPhone", state: "on" };
@@ -209,9 +209,9 @@ test("actions per row", () => {
 test("copy app id and Stop: only for a booted device with an app, between Open URL and Copy id", () => {
   const labels = (d) => D.actionsFor(d).map((a) => a.label);
   const sim = { kind: "sim", id: "U", state: "on", apps: ["com.example.budget", "com.example.notes"] };
-  assert.deepEqual(labels(sim), ["Shut down", "Screenshot", "Open URL…", "Run Maestro flow…", "Copy app id", "Stop budget", "Stop notes", "Copy UDID", "Erase…"]);
+  assert.deepEqual(labels(sim), ["Shut down", "Show screen", "Screenshot", "Open URL…", "Run Maestro flow…", "Copy app id", "Stop budget", "Stop notes", "Copy UDID", "Erase…"]);
   assert.deepEqual(D.actionsFor(sim).filter((a) => a.action === "stop").map((a) => a.app), ["com.example.budget", "com.example.notes"]);
-  assert.deepEqual(labels({ kind: "phone", id: "R5", serial: "R5", state: "on", apps: ["com.example.budget"] }), ["Screenshot", "Open URL…", "Run Maestro flow…", "Copy app id", "Stop budget", "Copy serial"]);
+  assert.deepEqual(labels({ kind: "phone", id: "R5", serial: "R5", state: "on", apps: ["com.example.budget"] }), ["Show screen", "Screenshot", "Open URL…", "Run Maestro flow…", "Copy app id", "Stop budget", "Copy serial"]);
   assert.ok(!labels({ ...sim, apps: [] }).includes("Copy app id"));
   assert.ok(!labels({ ...sim, apps: undefined }).includes("Copy app id"));
   assert.ok(!labels({ ...sim, state: "off" }).includes("Stop budget"));
@@ -227,9 +227,9 @@ test("Run Maestro flow: booted rows only, menu only", () => {
 test("Run <flow> again: under Run Maestro flow when the folder has a last flow", () => {
   const sim = { kind: "sim", id: "U", state: "on" }, avd = { kind: "avd", id: "emulator-5554", serial: "emulator-5554", avd: "a", state: "on" };
   const names = (d, o) => D.actionsFor(d, o).map((a) => a.action);
-  assert.deepEqual(names(sim, { lastFlow: "/p/.maestro/auth/onboarding-existing-budget.yaml" }), ["shutdown", "screenshot", "openurl", "maestro", "maestroAgain", "copy", "erase"]);
+  assert.deepEqual(names(sim, { lastFlow: "/p/.maestro/auth/onboarding-existing-budget.yaml" }), ["shutdown", "screen", "screenshot", "openurl", "maestro", "maestroAgain", "copy", "erase"]);
   assert.deepEqual(D.actionsFor(avd, { lastFlow: "/p/.maestro/login.yml" }).find((a) => a.action === "maestroAgain"), { action: "maestroAgain", label: "Run login again", icon: "flask", path: "/p/.maestro/login.yml" });
-  assert.equal(D.actionsFor(sim, { lastFlow: "/p/.maestro/onboarding-existing-budget.yaml" })[4].label, "Run onboarding-existing-budget again");
+  assert.equal(D.actionsFor(sim, { lastFlow: "/p/.maestro/onboarding-existing-budget.yaml" })[5].label, "Run onboarding-existing-budget again");
   assert.deepEqual(names(sim, {}), names(sim));
   assert.ok(!names({ ...sim, state: "off" }, { lastFlow: "/p/a.yaml" }).includes("maestroAgain"));
   assert.ok(names({ kind: "ios", id: "I", state: "on" }, { lastFlow: "/p/a.yaml" }).includes("maestroAgain"));
@@ -239,15 +239,15 @@ test("maestro missing: the row stays, disabled with a hint, and no Run again", (
   const sim = { kind: "sim", id: "U", state: "on" };
   const names = (o) => D.actionsFor(sim, o).map((a) => a.action);
   assert.deepEqual(D.actionsFor(sim, { maestro: false, lastFlow: "/p/a.yaml" }).find((a) => a.action === "maestro"), { action: "maestro", label: "Run Maestro flow…", icon: "flask", disabled: true, hint: "not installed" });
-  assert.deepEqual(names({ maestro: false, lastFlow: "/p/a.yaml" }), ["shutdown", "screenshot", "openurl", "maestro", "copy", "erase"]);
+  assert.deepEqual(names({ maestro: false, lastFlow: "/p/a.yaml" }), ["shutdown", "screen", "screenshot", "openurl", "maestro", "copy", "erase"]);
   assert.deepEqual(D.actionsFor(sim, { maestro: true }), D.actionsFor(sim));
   assert.ok(!D.actionsFor(sim).some((a) => a.disabled || a.hint === "not installed"));
 });
 
-test("menu key hints: space on Boot and Shut down, S on Screenshot", () => {
+test("menu key hints: space on Boot and Shut down, V on Show screen, S on Screenshot", () => {
   const hints = (d) => D.actionsFor(d).filter((a) => a.hint).map((a) => [a.action, a.hint]);
   assert.deepEqual(D.actionsFor({ kind: "sim", id: "U", state: "on" })[0], { action: "shutdown", label: "Shut down", icon: "power", hint: "space" });
-  assert.deepEqual(hints({ kind: "sim", id: "U", state: "on" }), [["shutdown", "space"], ["screenshot", "S"]]);
+  assert.deepEqual(hints({ kind: "sim", id: "U", state: "on" }), [["shutdown", "space"], ["screen", "V"], ["screenshot", "S"]]);
   assert.deepEqual(D.actionsFor({ kind: "avd", id: "a", avd: "a", state: "off" })[0], { action: "boot", label: "Boot", icon: "play", hint: "space" });
   assert.deepEqual(D.actionsFor({ kind: "phone", id: "R5", serial: "R5", state: "on" }).find((a) => a.action === "screenshot"), { action: "screenshot", label: "Screenshot", icon: "camera", hint: "S" });
 });
@@ -591,7 +591,7 @@ test("an AVD launch: its log, its process, and when the settle pass gives up on 
 
 test("hover icons and the row click", () => {
   const names = (d, phase) => D.hoverActions(d, phase).map((a) => a.action);
-  assert.deepEqual(names(sim("a", "on")), ["shutdown", "screenshot", "more"]);
+  assert.deepEqual(names(sim("a", "on")), ["shutdown", "screen", "screenshot", "more"]);
   assert.deepEqual(names(sim("a", "off")), ["boot", "more"]);
   // A boot under way can be cancelled: a simulator always, an AVD once adb has its serial.
   assert.deepEqual(names(sim("a", "off"), "booting"), ["shutdown", "more"]);
@@ -601,7 +601,7 @@ test("hover icons and the row click", () => {
   assert.deepEqual(names(sim("a", "on"), "stopping"), ["screenshot", "more"]);
   assert.deepEqual(names(sim("a", "off"), "stopping"), ["more"]);
   assert.deepEqual(names(sim("a", "off"), "erasing"), ["more"]);
-  assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screenshot", "more"]);
+  assert.deepEqual(names({ kind: "phone", id: "R5", serial: "R5", state: "on" }), ["screen", "screenshot", "more"]);
   assert.equal(D.primaryAction(sim("a", "off")), null);
   assert.equal(D.primaryAction(sim("a", "on")), "focus");
   assert.equal(D.primaryAction(sim("a", "off"), "booting"), null);
@@ -668,8 +668,8 @@ test("row icon by name", () => {
 
 test("menu dividers fall where the group changes", () => {
   const items = D.actionsFor({ kind: "sim", id: "U", state: "on", apps: ["com.example.budget"] }, { lastFlow: "/p/.maestro/login.yml" });
-  assert.deepEqual(items.map((a) => a.action), ["shutdown", "screenshot", "openurl", "maestro", "maestroAgain", "copyapp", "stop", "copy", "erase"]);
-  assert.deepEqual(items.map((_a, i) => D.dividerBefore(items, i)), [false, true, false, true, false, true, false, true, true]);
+  assert.deepEqual(items.map((a) => a.action), ["shutdown", "screen", "screenshot", "openurl", "maestro", "maestroAgain", "copyapp", "stop", "copy", "erase"]);
+  assert.deepEqual(items.map((_a, i) => D.dividerBefore(items, i)), [false, true, false, false, true, false, true, false, true, true]);
   assert.equal(D.menuDividers(items), 5);
   assert.equal(D.menuDividers(D.actionsFor({ kind: "sim", id: "U", state: "off" })), 2);
 });
@@ -782,7 +782,7 @@ test("deviceTags idle text: a hook's claim only, dim from 15 minutes on", () => 
 test("Release claim: in the menu only when claimed, after the Maestro items", () => {
   const sim = { kind: "sim", id: "U", state: "on" };
   const names = (o) => D.actionsFor(sim, o).map((a) => a.action);
-  assert.deepEqual(names({ lastFlow: "/p/a.yaml", claim: { owner: null, pid: null } }), ["shutdown", "screenshot", "openurl", "maestro", "maestroAgain", "release", "copy", "erase"]);
+  assert.deepEqual(names({ lastFlow: "/p/a.yaml", claim: { owner: null, pid: null } }), ["shutdown", "screen", "screenshot", "openurl", "maestro", "maestroAgain", "release", "copy", "erase"]);
   assert.ok(!names({}).includes("release"));
   assert.equal(D.actionsFor(sim, { claim: {} }).find((a) => a.action === "release").label, "Release claim");
 });

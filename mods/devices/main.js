@@ -1,4 +1,5 @@
-// Devices: iOS simulators and Android emulators/devices, with actions.
+// Devices: iOS simulators and Android emulators/devices, with actions, and one device's screen
+// live in the panel (screen-view.js).
 // One mod, six roles (props.role): none, the panel; over the window "menu"
 // (the right-click popup), "url", "maestro", "erase" and "claimed" (dialogs). Mod commands carry no
 // arguments, so the overlays run their action themselves and the panel
@@ -8,6 +9,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
 import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, filterSections, splitRunning, runningDetail, footerText, avdListChanged, driversFrom, staleClaims, claimHolders, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, killEmulator, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
+import { ScreenView } from "./screen-view.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -100,6 +102,8 @@ class Panel {
     this.claims = {}; // device claims by id, from the claims folder
     this.holders = {}; // claim pid -> its holder's terminal, as of the last iOS read
     this.seen = shared("devices.changed");
+    // The screen view takes the panel over while it shows a device (Show screen, V).
+    this.screen = new ScreenView(this.handle, (key) => this.devices().find((r) => deviceKey(r) === key) ?? null);
     this.reload(cx, "ios", !cache);
     this.reload(cx, "android", !cache);
     maestroFound(); // checked now, so the first menu already knows
@@ -219,6 +223,7 @@ class Panel {
 
   act(action, d, cx) {
     if (action === "more") return openMenu(d, this.claimOf(d));
+    if (action === "screen") { this.handle.focus(); return this.screen.show(d, deviceKey(d), cx); }
     const quiet = action === "boot" || action === "shutdown"; // the row's glyph shows those
     if (!quiet) this.busy++;
     cx.spawn(async (cx) => {
@@ -242,6 +247,7 @@ class Panel {
   // keystrokes, so cmd-m and the like pass through. While the filter field has the keyboard only
   // up, down and Escape are the list's: a stopped key would never type, and Enter is its submit.
   key(e, cx) {
+    if (this.screen.open) return this.screen.keyDown(e, cx); // the keys are the device's
     const k = e.keystroke, d = this.visible.find((r) => deviceKey(r) === this.selected);
     if (this.typing && k !== "up" && k !== "down" && k !== "escape") return;
     const phase = d && phaseOf(d, shared("devices.pending") ?? {}), toggle = d && toggleAction(d, phase);
@@ -252,11 +258,22 @@ class Panel {
     else if (k === "enter") this.click(d, phase, this.selected, false, cx);
     else if (k === "space" && toggle) this.act(toggle, d, cx);
     else if (k === "s" && hoverActions(d, phase).some((a) => a.action === "screenshot")) this.act("screenshot", d, cx);
+    else if (k === "v" && hoverActions(d, phase).some((a) => a.action === "screen")) this.act("screen", d, cx);
     else if (k === "m") openMenu(d, this.claimOf(d));
     else return;
     cx.stop_propagation();
     cx.notify();
   }
+
+  // The panel's box, which the list and the screen view both fill: it holds the keyboard and knows its size.
+  frame(t) {
+    return v_flex().id("root").track_focus(this.handle).size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
+      .text_color(t.foreground).text_size(13)
+      .on_size_change((size, cx) => { this.width = size.width; this.height = size.height; cx.notify(); })
+      .on_key_down((e, cx) => this.key(e, cx));
+  }
+
+  close() { this.screen.close(); }
 
   fold(kind, title) {
     this.folds[kind][title] = !this.folds[kind][title];
@@ -397,6 +414,7 @@ class Panel {
     const asked = shared("devices.request");
     if (asked) { setShared("devices.request", null); if (Date.now() - asked.at < 10000) this.act(asked.action, asked.device, cx); }
     const t = theme(), rail = this.width > 0 && this.width < 160;
+    if (this.screen.open) return this.frame(t).on_key_up((e, cx) => this.screen.keyUp(e, cx)).children(this.screen.render(t, this.width, this.height));
     const body = [], all = []; // all: each section's { title, devices, empty }, drawn once the fit is known
     if (!this.ios && !this.android) body.push(this.line("loading", "Loading devices…", null, t));
     if (this.ios) {
@@ -427,10 +445,7 @@ class Panel {
     for (const s of secs) body.push(...this.section(s, c));
     this.visible = c.shown;
     const working = this.spinning > 0 || this.busy > 0;
-    return v_flex().id("root").track_focus(this.handle).size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
-      .text_color(t.foreground).text_size(13)
-      .on_size_change((size, cx) => { this.width = size.width; this.height = size.height; cx.notify(); })
-      .on_key_down((e, cx) => this.key(e, cx))
+    return this.frame(t)
       .child(h_flex().h(42).flex_none().px(rail ? 0 : 14).gap(8).items_center().when(rail, (el) => el.justify_center()).border_b(1).border_color(t.border)
         .when(!rail, (el) => el.child(div().font_semibold().child("Devices")).child(div().flex_1()))
         .child(div().id("refresh").size(24).flex_none().flex().items_center().justify_center().rounded(6)
@@ -471,7 +486,7 @@ class Menu {
     if (this.claim && (a.action === "maestro" || a.action === "maestroAgain")) { closeOverlay(overlay); openDialog("claimed", d, { owner: this.claim.owner, next: a.action, path: a.path, cwd: this.cwd }); return; }
     if (a.action === "maestroAgain") { closeOverlay(overlay); runAgain(d, a.path, this.cwd); return; }
     if (a.action === "openurl" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : a.action, d); return; }
-    if (a.action === "boot" || a.action === "shutdown") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
+    if (a.action === "boot" || a.action === "shutdown" || a.action === "screen") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
     this.busy = i;
     cx.spawn(async (cx) => {
       if (a.action === "maestro") { await openPicker(d); closeOverlay(overlay); return; }
@@ -714,4 +729,7 @@ export default class Devices extends View {
   }
 
   render(cx) { return this.part.render(cx); }
+
+  // The panel's screen view frees its frame files and stops the helper it started.
+  close() { this.part.close?.(); }
 }
