@@ -74,6 +74,9 @@ export function hookInstalled() {
   return hook.installed;
 }
 
+// After an install: the next look reads the files again.
+export function forgetHook() { hook.at = 0; }
+
 // A tool's path, finding it with a harmless call when no list read did yet.
 async function toolPath(name) {
   if (!found[name]) await tool(name, name === "adb" ? ["version"] : ["-list-avds"]).catch(() => null);
