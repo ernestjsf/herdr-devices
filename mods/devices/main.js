@@ -3,10 +3,10 @@
 // (the right-click popup), "url", "maestro", "erase" and "claimed" (dialogs). Mod commands carry no
 // arguments, so the overlays run their action themselves and the panel
 // reloads on the shared "devices.changed".
-import { View, div, svg } from "gpui-kit";
+import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
-import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, filterSections, splitRunning, runningDetail, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
+import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, filterSections, splitRunning, runningDetail, footerText, avdListChanged, driversFrom, staleClaims, claimHolders, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, killEmulator, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
@@ -98,6 +98,7 @@ class Panel {
     this.drivers = []; // Maestro MCP's device servers, from the last iOS read
     this.cpu = {}; // their CPU seconds then, by pid
     this.claims = {}; // device claims by id, from the claims folder
+    this.holders = {}; // claim pid -> its holder's terminal, as of the last iOS read
     this.seen = shared("devices.changed");
     this.reload(cx, "ios", !cache);
     this.reload(cx, "android", !cache);
@@ -127,7 +128,7 @@ class Panel {
         for (;;) { await watchFolder(dir); this.claims = await readClaims(); cx.notify(); }
       } catch {} // no folder: the iOS poll reads it
     });
-    cx.timer.every(10000, (cx) => cx.notify()); // the footer's "refreshed …m ago"
+    cx.timer.every(10000, (cx) => cx.notify()); // the footer's "refreshed …m ago" and the claim pills' "idle …m"
     cx.spawn(async (cx) => {
       try {
         for (;;) {
@@ -164,6 +165,7 @@ class Panel {
           const rows = await readPs(), stale = staleClaims(this.claims, rows);
           ({ drivers: this.drivers, cpu: this.cpu } = driversFrom(rows, terminals(), this.cpu));
           if (stale.length) { await dropClaims(stale, this.claims); this.claims = await readClaims(); } // holders gone
+          this.holders = claimHolders(this.claims, rows, terminals());
         }
         this.refreshedAt = Date.now();
         // Read failed or partial: keep the recents it can't vouch for.
@@ -277,7 +279,7 @@ class Panel {
     const { t, rail, pending } = c, key = deviceKey(d), phase = phaseOf(d, pending);
     const on = d.state === "on" && !phase, claim = this.claimOf(d);
     const drivers = deviceDrivers(d, this.drivers, c.terminals, c.agents);
-    const tags = deviceTags(claim, drivers, c.agents, c.terminals);
+    const tags = deviceTags(claim, drivers, c.agents, c.terminals, { holder: this.holders[claim?.pid] ?? null, now: c.now });
     const state = phase ? `${phase}…` : d.state === "on" ? "booted" : d.state;
     const row = h_flex().id(`row-${key}`).h(two ? 40 : 26).flex_none().mx(6).pr(4).gap(8).items_center().rounded(6).cursor_pointer().text_size(12.5)
       .when(rail, (el) => el.justify_center().tooltip(`${d.name} · ${state}`))
@@ -290,7 +292,9 @@ class Panel {
       .child(div().size(14).flex_none().child(this.glyph(glyphOf(d, phase), d, t)));
     if (rail) return row;
     const name = div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name);
-    const pills = [...(d.apps?.length ? [this.appTag(d, key, t)] : []), ...tags.map((g, i) => this.tag(g, i && tags.length > 1 ? `driver-${key}` : `tag-${key}`, t))];
+    // The claim pill takes up to 200 px on a Running row's second line, for the session's name. Its
+    // hover, like every hover here, is style only, never a cx.notify(): re-rendering on hover made the panel lag.
+    const pills = [...(d.apps?.length ? [this.appTag(d, key, t)] : []), ...tags.map((g, i) => this.tag(g, i && tags.length > 1 ? `driver-${key}` : `tag-${key}`, t, d, two && g.icon === "lock" ? 200 : 96))];
     // Icons sit dim at the right edge and brighten under the pointer: gpui-kit has no
     // hover groups, and redrawing the panel on every row hover made it lag.
     const icons = h_flex().flex_none().opacity(0.4).hover((s) => s.opacity(1)).children(hoverActions(d, phase).map((a) => this.hoverIcon(a, d, key, t)));
@@ -298,7 +302,7 @@ class Panel {
     if (two) return row.child(v_flex().flex_1().min_w(0)
       .child(h_flex().h(24).gap(8).items_center().child(name).child(div().flex_1()).child(icons))
       .child(h_flex().h(16).gap(8).items_center().overflow_hidden().text_size(11).text_color(t.dim)
-        .child(div().min_w(0).truncate().child(runningDetail(d, phase))).children(pills)));
+        .child(div().flex_none().child(runningDetail(d, phase))).children(pills)));
     // Left to right: name, app tag, agent tag(s), phase, then right-aligned the detail and the icons.
     return row
       .child(name)
@@ -329,18 +333,25 @@ class Panel {
 
   // The agent pill, shaped like the app tag: an icon for the relationship (lock claimed, link
   // driven, triangle mismatch), the tone for liveness (`working` driving, `blocked` its agent is,
-  // else muted), then the program's key. With a driver it brightens under the pointer, unlike the
-  // app tag: a click focuses the first driver's terminal.
-  tag({ icon: ic, label, tone, tip, focus, terminal }, id, t) {
+  // else muted), the holder's program icon, then the label (truncated), the idle text in `dim` and,
+  // on a claim, a × that releases it; a claim pill gives way (its label truncates) before the row's detail does. With a click (the holder's or the first driver's terminal) it
+  // brightens under the pointer, unlike the app tag.
+  tag({ icon: ic, label, tone, tip, focus, terminal, program: p, idle: since, release }, id, t, d, max) {
     const idle = tone === "idle", color = idle ? t.muted : t[tone];
-    return h_flex().id(id).flex_none().max_w(96).truncate().items_center().gap(3).px(5).h(16).rounded(4)
+    return h_flex().id(id).when(!release, (el) => el.flex_none()).min_w(0).max_w(max).truncate().items_center().gap(3).px(5).h(16).rounded(4)
       .bg(idle ? t.raised : t[tone] + "1f").text_size(10.5).font_medium().text_color(color)
       .when(Boolean(focus), (el) => el
         .hover((s) => s.bg(idle ? t.hover : t[tone] + "40").text_color(idle ? t.foreground : color))
         .on_click((_e, cx) => { cx.stop_propagation(); run(focus, { terminal }); }))
       .tooltip(tip)
       .child(svg(icon(ic)).size(10).flex_none())
-      .when(Boolean(label), (el) => el.child(label));
+      .when(Boolean(p), (el) => el.child(p.tint ? svg(p.icon).size(10).flex_none() : image(p.icon).w(10).h(10).flex_none()))
+      .when(Boolean(label), (el) => el.child(div().min_w(0).truncate().child(label)))
+      .when(Boolean(since), (el) => el.child(div().flex_none().text_color(t.dim).child(since)))
+      // Its own hit area: the release, never the pill's focus or the row's click.
+      .when(Boolean(release), (el) => el.child(div().id(`${id}-release`).flex_none().px(2).text_size(11).text_color(t.dim).cursor_pointer()
+        .hover((s) => s.text_color(t.foreground)).tooltip("Release claim")
+        .on_click((_e, cx) => { cx.stop_propagation(); this.act("release", d, cx); }).child("×")));
   }
 
   // A centered dim line with accent links (one, or an array).
@@ -412,7 +423,7 @@ class Panel {
     const listHeight = this.height - 2 - 42 - (rail ? 0 : 38 + 28) - (hint ? 32 : 0) - 8;
     // While filtering every match shows, as if all fit.
     const fits = Boolean(query) || fitsUnfolded(secs.map((s) => ({ count: s.devices.length, closed: !rail && this.folds.closed[s.title] === true, row: s.running && !rail ? 40 : 26 })), listHeight);
-    const c = { t, rail, fits, query, pending, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents(), shown: [] };
+    const c = { t, rail, fits, query, pending, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents(), shown: [], now: Date.now() };
     for (const s of secs) body.push(...this.section(s, c));
     this.visible = c.shown;
     const working = this.spinning > 0 || this.busy > 0;

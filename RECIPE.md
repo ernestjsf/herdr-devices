@@ -55,7 +55,8 @@ in `foreground`. Top to bottom:
     under the pointer. Rows carry no tint of their own. The **app tag** (Running
     rows only, see Apps): 16px tall, 5px side padding, radius 4, `done` at 12%
     (`done` + `1f`) behind 10.5px medium `done` text, at most 96px wide
-    (truncated); the agent tag (see Drivers, Claims) has the same shape.
+    (truncated); the agent tag (see Drivers, Claims) has the same shape (the claim
+    pill on a Running row: 200px at most).
   - **Icons** (Lucide, in `icons/`): by the device's name, `tablet` (iPad,
     Tablet, Fold, Pad), `watch` (Watch, Wear), `tv` (TV, Television), `glasses`
     (Vision), else `smartphone`. Booted/online the icon is `foreground` with a
@@ -198,7 +199,10 @@ action button reads `Working…` while it runs.
   (one creator wins) and holding `pid` (the agent's process), optionally
   `owner` (its first line, 40 characters at most, is the tag's label) and
   `start` (the process's start as `LC_ALL=C TZ=UTC ps -o lstart=` prints it, so a pid reused by
-  another process later isn't taken for the holder). `<id>` is
+  another process later isn't taken for the holder). The `pid` file's mtime is the holder's last use
+  (the hook touches it on every call): `readClaims` gets every claim's at once from one
+  `sh -c 'cd <claims>; stat -f "%m %N" */pid || stat -c "%Y %n" */pid'` (`pidMtimesArgv`,
+  `parsePidMtimes`; `fs` has no stat), as `used` (ms); a failure leaves it unknown. `<id>` is
   `claimId(d)`: what Maestro's `--device` takes, the UDID for `sim` and `ios`,
   the serial for `avd` and `phone`; an off AVD has none. At start the panel runs
   `mkdir -p` on the folder through `exec` (`fs/promises` writes only under the
@@ -209,17 +213,33 @@ action button reads `Working…` while it runs.
   (compared only when both are known), `dropClaims` removes each (`dropClaimArgv`: ids must pass
   `CLAIM_ID`; under the hook's `.takeover.<id>` lock folder, and only while the `pid` file
   still names that holder, so a takeover since keeps its claim), and the claims are read once more. No usable `pid`: kept. No ps
-  rows: nothing dropped. The row has one agent pill, not in the rail (same shape as the
-  app tag: 16px tall, 5px side padding, radius 4, 10.5px medium, 96px at most, truncated),
-  a 10px icon, 3px gap, then the program key. Icon = relationship: `lock` claimed, `link`
+  rows: nothing dropped. Then the same rows give each claim's **holder** (`claimHolders`, by pid):
+  the terminal whose `pid` or `foreground.pid` the claim's pid is, or whose its parents reach
+  (the Drivers walk); none without ps rows. The row has one agent pill, not in the rail (same shape as the
+  app tag: 16px tall, 5px side padding, radius 4, 10.5px medium, 96px at most, truncated; the
+  claim pill on a 40px Running row 200px), a 10px icon, 3px gap, then on a claim the holder's
+  `program` icon at 10px when it has one (`svg` when `tint`, else `image`), the text (truncated),
+  the idle text in `dim` and a `×`. Icon = relationship: `lock` claimed, `link`
   a driver and no claim, `triangle` mismatch. Color = liveness, as under Drivers (claimed
-  with no driver: idle). Text: the claim's owner, else the first driver's key; a claim with
-  neither shows the icon alone. Mismatch (the claim has an owner and no driver's key equals
-  it, case-insensitively; a pane driver reads `maestro`): two pills, the claim (`lock`, idle,
-  owner, not clickable) then the driver (`triangle`, `blocked`, key, clickable). Ids `tag-<key>`
-  and `driver-<key>`. Click and hover only with a driver. Tooltip: `Claimed by <owner>` (or
-  `Claimed`) `· pid <n> · Release from the menu`, then the driver lines (one per line), or
-  `· not attached`. The menu gets `Release claim` (icon `square`) after the Maestro items
+  with no driver: idle; idle too once the claim can be taken over). Text: the holder agent's
+  `title`, else its `tab_name`, else `space_name` (trimmed), else the claim's owner, else the
+  first driver's key; a claim with none shows the icon alone. Idle text (`idleText(used, now)`, `now`
+  the render's): under 2 minutes none, then `idle 14m`, from an hour `idle 2h`; only on a claim with
+  a `pid`, a `start` (the hook's: one made by hand never goes idle) and a known `used`. From 15
+  minutes (the hook's default; the env var isn't read) the pill is idle-toned. The 10 s re-render
+  (the footer's) keeps it current. Mismatch: with a holder, there are drivers and none is in the
+  holder's terminal; without, the claim has an owner and no driver's key equals it,
+  case-insensitively (a pane driver reads `maestro`). Then two pills, the claim (`lock`, idle)
+  then the driver (`triangle`, `blocked`, key, clickable). Ids `tag-<key>` and `driver-<key>`.
+  A claim pill with a holder clicks to it, driving or not (`agent.focus {terminal}` for an agent,
+  else `pane.focus {terminal}`); without one, only when it stands for the first driver (no
+  mismatch), to that driver. Hover only with a click. Tooltip: with a holder `Click to focus
+  <program name>`, then `Claimed by <agent program name, else owner>` (or `Claimed`) `· <space> / <tab> ·
+  <status> · pid <n> · idle 14m` (each when known) `· another agent can take it over` (from 15
+  minutes), then the driver lines (one per line), or `· not attached`. The claim pill's `×`
+  (11px `dim`, `foreground` under the pointer, 2px side padding, its own hit area, tooltip
+  `Release claim`) stops the click there and runs the release; not on the link or triangle pill.
+  Hover is style only: no `cx.notify()`. The menu gets `Release claim` (icon `square`) after the Maestro items
   while the device is claimed: `rm -r <claims>/<id>`, refused unless the id
   passes `CLAIM_ID` and the folder is absolute.
   **Hook** (`hooks/claim.sh <label>`, POSIX sh, no dependencies, hook JSON on stdin): the agent is the
@@ -422,8 +442,9 @@ action button reads `Working…` while it runs.
   `errorLine`, `emulatorLogPath`, `avdProcessPattern`, `lastLine`,
   `screenshotPath`, `validUrl`, `maestroArgv`, `parseVars`, `maestroPaneName`, `isMaestroPane`, `flowsDefault`, `findFlowsArgv`,
   `flowRows` (find's paths -> `{ label, sub, path }`), `maestroRunning`, `parsePs`,
-  `driversFrom` (ps rows, terminals, last CPU times -> `{ drivers, cpu }`),
-  `deviceDrivers`, `driverTag`, `claimId`, `CLAIM_ID`, `claimsFrom`, `staleClaims`, `deviceTags`, `hookDetected`.
+  `driversFrom` (ps rows, terminals, last CPU times -> `{ drivers, cpu }`), `claimHolders`,
+  `deviceDrivers`, `driverTag`, `claimId`, `CLAIM_ID`, `claimsFrom`, `pidMtimesArgv`, `parsePidMtimes`, `idleText`,
+  `staleClaims`, `deviceTags`, `hookDetected`.
 - `actions.js`: `loadIos()`, `loadAndroid()`, `bootCompleted(serial)`,
   `emulatorRunning(avd)`, `emulatorLastLine(avd)`, `endWipe(device)`,
   `avdHome()`, `forgetAvds()`, `forgetTools()`, `killEmulator(avd)`, `focus(device)`, `maestroCwd()`, `maestroStart()`,
@@ -522,7 +543,8 @@ action button reads `Working…` while it runs.
   `agent.focus` command were. The Running section's 40px rows and the filter
   field were not seen live, nor typing in it: that its `focus` / `blur` fire,
   that up, down and Escape reach the root's `on_key_down` from it (the Maestro
-  picker's filter relies on the same) and that Enter arrives as its submit.
+  picker's filter relies on the same) and that Enter arrives as its submit. The claim pill's
+  session label, program icon, idle text, holder click and `×` were not seen live.
 
 ## Done when
 
@@ -551,6 +573,8 @@ action button reads `Working…` while it runs.
   a server's terminal four parents up, a walk stopping at pid 1, active from
   CPU growth only while its agent works, the Maestro pane driving during its
   run and not after, the pane winning over its own server, the first of two),
+  the claims (holders found directly, through parents or not at all, pid mtimes, idle text, the
+  pills' labels, clicks, mismatches, idle look and ×),
   and every action's argv (the URL quoted for `adb shell`, erase refusing a folder
   that isn't an absolute `*.avd`).
 - `herdr-app check ~/.config/herdr-app/mods/devices` passes and `herdr-app

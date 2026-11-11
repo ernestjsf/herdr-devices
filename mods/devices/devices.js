@@ -372,24 +372,48 @@ export function parsePs(text) {
 
 const SIM_SERVER = /(?:^|\/)simulator-server ios --id (\S+)/;
 
+// The live terminals' pids and foreground pids -> their address, and a walk from `pid` up its
+// parents (50 at most, never past pid 1) to the first of them: the terminal it runs under, or null.
+const terminalPids = (terminals) => {
+  const owner = new Map();
+  for (const t of terminals) if (t.state !== "finished") for (const pid of [t.pid, t.foreground?.pid]) if (pid) owner.set(pid, t.address);
+  return owner;
+};
+const terminalUnder = (pid, byPid, owner) => {
+  let p = pid;
+  for (let hops = 0; p > 1 && hops < 50 && !owner.has(p); hops++) p = byPid.get(p)?.ppid ?? 0;
+  return owner.get(p) ?? null;
+};
+
 // Maestro MCP's per-device servers (`simulator-server ios --id <udid>`), each
-// with the terminal it runs under: its parents are walked (50 at most, never
-// past pid 1) to a terminal's pid or foreground pid. Active: its CPU time grew
+// with the terminal it runs under: its parents are walked (terminalUnder) to a
+// terminal's pid or foreground pid. Active: its CPU time grew
 // since `prevCpu` (pid -> seconds; a first sighting isn't). Returns { drivers:
 // [{ udid, address, pid, cpu, active }], cpu: the next prevCpu }.
 export function driversFrom(rows, terminals, prevCpu = {}) {
-  const byPid = new Map(rows.map((r) => [r.pid, r])), owner = new Map();
-  for (const t of terminals) if (t.state !== "finished") for (const pid of [t.pid, t.foreground?.pid]) if (pid) owner.set(pid, t.address);
+  const byPid = new Map(rows.map((r) => [r.pid, r])), owner = terminalPids(terminals);
   const drivers = [], cpu = {};
   for (const r of rows) {
     const udid = SIM_SERVER.exec(r.command)?.[1];
     if (!udid) continue;
     cpu[r.pid] = r.cpu;
-    let p = r.ppid;
-    for (let hops = 0; p > 1 && hops < 50 && !owner.has(p); hops++) p = byPid.get(p)?.ppid ?? 0;
-    if (owner.has(p)) drivers.push({ udid, address: owner.get(p), pid: r.pid, cpu: r.cpu, active: prevCpu[r.pid] !== undefined && r.cpu > prevCpu[r.pid] });
+    const address = terminalUnder(r.ppid, byPid, owner);
+    if (address) drivers.push({ udid, address, pid: r.pid, cpu: r.cpu, active: prevCpu[r.pid] !== undefined && r.cpu > prevCpu[r.pid] });
   }
   return { drivers, cpu };
+}
+
+// The claims' holder terminals: { pid: address } for the claim pids that are a live terminal's pid
+// or foreground pid, or run under one. By pid, so a claim taken over since isn't given the last
+// holder's terminal. No rows: ps failed, so none is known.
+export function claimHolders(claims, rows, terminals) {
+  if (!rows.length) return {};
+  const byPid = new Map(rows.map((r) => [r.pid, r])), owner = terminalPids(terminals), out = {};
+  for (const { pid } of Object.values(claims)) {
+    const address = pid ? terminalUnder(pid, byPid, owner) : null;
+    if (address) out[pid] = address;
+  }
+  return out;
 }
 
 // Who drives a device, the one to show first: one per terminal, this panel's
@@ -433,11 +457,25 @@ export const claimId = (d) => (d.kind === "sim" || d.kind === "ios" ? d.id : d.s
 // A claim folder's name: one path segment, never `..` or a path that climbs out of the claims folder.
 export const CLAIM_ID = /^[A-Za-z0-9_:-][A-Za-z0-9._:-]*$/;
 
-// [{ name, owner, pid, start }] (the owner, pid and start files' text, if any) -> { id: { owner, pid, start } }:
-// the owner's first line (40 characters at most), the pid as a positive integer, the holder's
-// start as ps's lstart prints it (so a reused pid isn't the holder), else null.
+// [{ name, owner, pid, start, used }] (the owner, pid and start files' text, if any; used: the pid
+// file's mtime in ms) -> { id: { owner, pid, start, used } }: the owner's first line (40 characters at
+// most), the pid as a positive integer, the holder's start as ps's lstart prints it (so a reused
+// pid isn't the holder), the last use (the hook touches the pid file on every call), else null.
 export const claimsFrom = (entries) =>
-  Object.fromEntries(entries.map((e) => [e.name, { owner: e.owner?.split("\n")[0].trim().slice(0, 40) || null, pid: Number(e.pid?.trim()) > 0 ? Number(e.pid) : null, start: e.start?.trim() || null }]));
+  Object.fromEntries(entries.map((e) => [e.name, { owner: e.owner?.split("\n")[0].trim().slice(0, 40) || null, pid: Number(e.pid?.trim()) > 0 ? Number(e.pid) : null, start: e.start?.trim() || null, used: e.used > 0 ? e.used : null }]));
+
+// Every claim's pid file mtime in one call, from the claims folder: `<seconds> <id>/pid` lines
+// (macOS stat, else GNU's; a glob that matches nothing prints nothing).
+const PID_MTIMES = 'cd "$1" 2>/dev/null || exit 0; stat -f "%m %N" */pid 2>/dev/null || stat -c "%Y %n" */pid 2>/dev/null; exit 0';
+export const pidMtimesArgv = (claimsDir) => ["sh", "-c", PID_MTIMES, "sh", claimsDir];
+// Its output -> { id: ms }; lines that aren't `<seconds> <id>/pid` are skipped.
+export const parsePidMtimes = (text) => Object.fromEntries([...(text ?? "").matchAll(/^(\d+) ([^\s/]+)\/pid$/gm)].map((m) => [m[2], Number(m[1]) * 1000]));
+
+// How long a claim's holder has left the device alone, as the pill shows it: nothing under 2
+// minutes, then `idle 14m`, from an hour `idle 2h`. null without a last use (or one ahead of now).
+export const idleText = (used, now) => (used && now - used >= 120000 ? `idle ${span(now - used)}` : null);
+// claim.sh's default HERDR_DEVICES_IDLE_MIN: from then on another agent can take the claim over.
+const TAKEOVER_MS = 15 * 60000;
 
 // The claim ids whose holder is gone: its pid is not in ps's rows, or is but started at another
 // time (the pid was reused; compared only when both sides know the start). No pid: nothing to
@@ -474,20 +512,31 @@ export function hookDetected({ plugins, claudeSettings, claudeLocal, codexHooks,
 }
 
 
-// A row's agent tag(s): [{ icon, label, tone, tip, focus, terminal }], none when the device is neither
-// claimed nor driven. One tag: `lock` when claimed, else `link` (driven); label the claim's owner, else
-// the first driver's program key; tone from the first driver (idle without one). A claim whose owner no
-// driver matches (case-insensitive) is two: the claim (`lock`, idle) then the driver (`triangle`, blocked).
-// focus/terminal (the click) only on a tag that stands for the first driver.
-export function deviceTags(claim, drivers, agents, terminals) {
+// A row's agent tag(s): [{ icon, label, tone, tip, focus, terminal, program?, idle?, release? }], none
+// when the device is neither claimed nor driven. One tag: `lock` when claimed, else `link` (driven).
+// `holder`: the claim's terminal (claimHolders), if known. The lock's label is the holder agent's
+// session (title, else tab, else space), else the claim's owner, else the first driver's key; `program`
+// the holder's (for its icon), `idle` its idle text (a hook's claim only: one made by hand has no
+// start and never goes idle; `now` is the render's time), `release` its ×. Tone from the first driver
+// (idle without one, or once the claim can be taken over). A mismatch is two: the claim (`lock`, idle)
+// then the driver (`triangle`, blocked); with a holder, no driver in its terminal; without, no driver
+// whose key is the owner (case-insensitive). The lock's click focuses the holder, else the first driver
+// when it stands for it; the other tags' the first driver.
+export function deviceTags(claim, drivers, agents, terminals, { holder = null, now = 0 } = {}) {
   const tags = drivers.map((x) => driverTag(x, agents.find((a) => a.address === x.address), terminals.find((y) => y.address === x.address)));
   const [first] = tags, terminal = drivers[0]?.address, owner = claim?.owner;
   const driven = (ts) => ts.map((g) => g.tip).join("\n");
   if (!claim) return first ? [{ icon: "link", label: first.label, tone: first.tone, tip: `${driven(tags)}\nNot claimed`, focus: first.focus, terminal }] : [];
-  const head = [owner ? `Claimed by ${owner}` : "Claimed", claim.pid && `pid ${claim.pid}`, "Release from the menu"].filter(Boolean).join(" · ");
-  if (first && owner && !tags.some((g) => g.label.toLowerCase() === owner.toLowerCase()))
-    return [{ icon: "lock", label: owner, tone: "idle", tip: head }, { icon: "triangle", label: first.label, tone: "blocked", tip: driven(tags), focus: first.focus, terminal }];
-  return [{ icon: "lock", label: owner || first?.label || "", tone: first?.tone ?? "idle", tip: first ? `${head}\n${driven(tags)}` : `${head} · not attached`, focus: first?.focus, terminal }];
+  const agent = holder ? agents.find((a) => a.address === holder) : undefined, program = holder ? (agent ?? terminals.find((y) => y.address === holder))?.program : undefined;
+  const idle = claim.pid && claim.start ? idleText(claim.used, now) : null, takeable = Boolean(idle) && now - claim.used >= TAKEOVER_MS;
+  const by = (agent && program?.name) || owner || program?.name;
+  const head = [holder && `Click to focus ${program?.name ?? holder}`,
+    [by ? `Claimed by ${by}` : "Claimed", agent && `${agent.space_name} / ${agent.tab_name}`, agent?.status, claim.pid && `pid ${claim.pid}`, idle, takeable && "another agent can take it over"].filter(Boolean).join(" · ")].filter(Boolean).join("\n");
+  const label = agent?.title?.trim() || agent?.tab_name?.trim() || agent?.space_name?.trim() || owner || first?.label || "";
+  const lock = { icon: "lock", label, program: program?.icon ? program : null, idle, release: true, ...(holder && { focus: agent ? "agent.focus" : "pane.focus", terminal: holder }) };
+  const mismatch = first && (holder ? !drivers.some((x) => x.address === holder) : owner && !tags.some((g) => g.label.toLowerCase() === owner.toLowerCase()));
+  if (mismatch) return [{ ...lock, tone: "idle", tip: head }, { icon: "triangle", label: first.label, tone: "blocked", tip: driven(tags), focus: first.focus, terminal }];
+  return [{ focus: first?.focus, terminal, ...lock, tone: takeable ? "idle" : first?.tone ?? "idle", tip: first ? `${head}\n${driven(tags)}` : `${head} · not attached` }];
 }
 
 // The flows path to offer: the project's .maestro folder when it has one, else its folder.
@@ -680,7 +729,8 @@ export function deviceIcon(d) {
 }
 
 const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const ago = (ms) => (ms < 3600000 ? `${Math.floor(ms / 60000)}m ago` : `${Math.floor(ms / 3600000)}h ago`);
+const span = (ms) => (ms < 3600000 ? `${Math.floor(ms / 60000)}m` : `${Math.floor(ms / 3600000)}h`);
+const ago = (ms) => `${span(ms)} ago`;
 
 // "5 simulators · 1 emulator": only the kinds there are; "No devices" when none.
 // "· refreshed 2m ago" only once the reads have stalled for a minute.

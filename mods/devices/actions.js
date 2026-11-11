@@ -182,11 +182,14 @@ export async function loadIos() {
 // Where agents claim devices, one folder per device.
 export const claimsDir = () => `${home()}/.cache/herdr-devices/claims`;
 
-// { id: { owner, pid } } for the claim folders there are.
+// { id: { owner, pid, start, used } } for the claim folders there are. fs has no stat, so the pid
+// files' mtimes (the holder's last use) come from one `stat` over them all; a failure leaves them unknown.
 export async function readClaims() {
   const dir = claimsDir(), file = (name, f) => readTextFile(`${dir}/${name}/${f}`).catch(() => null);
   const names = (await readdir(dir, { withFileTypes: true }).catch(() => [])).filter((e) => e.isDirectory()).map((e) => e.name);
-  return D.claimsFrom(await Promise.all(names.map(async (name) => ({ name, owner: await file(name, "owner"), pid: await file(name, "pid"), start: await file(name, "start") }))));
+  const [cmd, ...args] = D.pidMtimesArgv(dir);
+  const used = names.length ? D.parsePidMtimes((await exec(cmd, args).catch(() => null))?.stdout) : {};
+  return D.claimsFrom(await Promise.all(names.map(async (name) => ({ name, owner: await file(name, "owner"), pid: await file(name, "pid"), start: await file(name, "start"), used: used[name] }))));
 }
 
 // Removes the claim folders of `ids` (their holders, `claims[id].pid`, are gone); a failure leaves the claim for the next read.

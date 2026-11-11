@@ -48,7 +48,7 @@ Two agents driving one simulator trample each other. A claim says "this device i
 
 - A claim is a folder named after the device id Maestro's `--device` takes: the UDID, or the adb serial.
 - It holds the agent's pid. The hook also records the agent's start time, so a reused pid doesn't count.
-- The panel drops a claim once its pid is gone, and offers **Release claim** in the menu.
+- The panel drops a claim once its pid is gone. **Release claim** is in the menu, and the pill's **×** does the same.
 
 The row shows one pill for the agent:
 
@@ -57,7 +57,7 @@ The row shows one pill for the agent:
 | lock, grey | claimed, and the owner isn't driving right now |
 | lock, coloured | claimed, and the owner is driving (or attached and blocked) |
 | link | driven by an agent, with no claim |
-| lock, then a triangle pill | claimed by one program, driven by another |
+| lock, then a triangle pill | claimed by one session, driven by another |
 
 ```sh
 mkdir -p ~/.cache/herdr-devices/claims
@@ -65,7 +65,7 @@ mkdir ~/.cache/herdr-devices/claims/<udid> && echo $PPID > ~/.cache/herdr-device
 rm -r ~/.cache/herdr-devices/claims/<udid>   # release
 ```
 
-A plain `mkdir`, never `mkdir -p`: `-p` succeeds on an existing folder. From an agent's command shell, `$PPID` is the agent itself. An `owner` file's first line becomes the tag's label.
+A plain `mkdir`, never `mkdir -p`: `-p` succeeds on an existing folder. From an agent's command shell, `$PPID` is the agent itself. The pill names the holder's session (its terminal's title) once the panel finds the agent's terminal, else the `owner` file's first line.
 
 To claim the first free booted simulator:
 
@@ -149,7 +149,7 @@ They cover `devices.js` (parsing and command building) and the hook scripts. The
 ## Limits
 
 - iOS needs macOS and Xcode. The Android half should work on Linux, untested.
-- A claim without a pid file stays until released from the menu.
+- A claim without a pid file stays until released from the menu or the pill's ×.
 - Clicking a booted device brings its window forward. On macOS the Simulator part needs Accessibility access for Herdr (System Settings → Privacy & Security → Accessibility); on Linux it needs `xdotool` and an X11 session (Wayland can't activate windows). Linux and Windows are untested live.
 - Tested on macOS with Herdr 0.1.10. AVD erase, Android screenshots and Open URL, and connected iOS devices are covered by tests, not run live yet.
 

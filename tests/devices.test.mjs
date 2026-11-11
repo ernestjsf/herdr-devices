@@ -315,6 +315,34 @@ test("drivers: each simulator-server's UDID and the terminal it runs under", () 
   assert.deepEqual(D.driversFrom(psRows(), [{ address: "t9", pid: 610, state: "finished" }], {}).drivers, []);
 });
 
+test("claim holders: the terminal a claim's pid is, or runs under, by pid", () => {
+  const claims = { A: { pid: 640 }, B: { pid: 730 }, C: { pid: 660 }, D: { pid: 810 }, E: { pid: null }, F: { pid: 99999 } };
+  // 640 is t1's foreground and 730 t2's: found directly. 660 -> 655 -> 640: through its parents.
+  // 810 ends at launchd without a terminal; no pid, or a pid ps doesn't list: none.
+  assert.deepEqual(D.claimHolders(claims, psRows(), terms), { 640: "t1", 730: "t2", 660: "t1" });
+  assert.deepEqual(D.claimHolders({ A: { pid: 610 } }, psRows(), [{ address: "t1", state: "live", pid: 610 }]), { 610: "t1" });
+  assert.deepEqual(D.claimHolders({ A: { pid: 640 } }, psRows(), [{ ...terms[0], state: "finished" }]), {});
+  assert.deepEqual(D.claimHolders(claims, [], terms), {});
+});
+
+test("idle text: none under 2 minutes, then minutes, from an hour hours", () => {
+  const now = Date.UTC(2026, 10, 11, 12), min = 60000;
+  assert.equal(D.idleText(now - 119000, now), null);
+  assert.equal(D.idleText(now - 2 * min, now), "idle 2m");
+  assert.equal(D.idleText(now - 14 * min - 59000, now), "idle 14m");
+  assert.equal(D.idleText(now - 15 * min, now), "idle 15m");
+  assert.equal(D.idleText(now - 59 * min, now), "idle 59m");
+  assert.equal(D.idleText(now - 125 * min, now), "idle 2h");
+  assert.equal(D.idleText(null, now), null);
+  assert.equal(D.idleText(now + 5 * min, now), null);
+});
+
+test("pid mtimes: one stat over the claims folder, read as { id: ms }", () => {
+  assert.deepEqual(D.pidMtimesArgv("/h/.cache/herdr-devices/claims").slice(3), ["sh", "/h/.cache/herdr-devices/claims"]);
+  assert.deepEqual(D.parsePidMtimes("1762862400 U-1/pid\n1762862460 emulator-5554/pid\n  File: \"U-1/pid\"\n12 a/b/pid\n"), { "U-1": 1762862400000, "emulator-5554": 1762862460000 });
+  assert.deepEqual(D.parsePidMtimes(undefined), {});
+});
+
 test("drivers: active when its CPU time grew since the last read", () => {
   const { drivers } = D.driversFrom(psRows(), terms, { 671: 38.31, 752: 1.9, 999: 5 });
   assert.deepEqual(drivers.map((x) => [x.pid, x.active]), [[671, false], [752, true]]);
@@ -656,8 +684,9 @@ test("claimId: the UDID for simulators and iPhones, the serial for running Andro
 
 test("claimsFrom: owner's first line (40 characters at most) or none, pid as a number or none", () => {
   const claims = D.claimsFrom([{ name: "U-1", owner: "claude\nsecond line\n", pid: "4242\n" }, { name: "U-2", owner: null }, { name: "U-3", owner: "x".repeat(60), pid: "not a pid" }, { name: "U-4", pid: "0" }]);
-  assert.deepEqual(claims, { "U-1": { owner: "claude", pid: 4242, start: null }, "U-2": { owner: null, pid: null, start: null }, "U-3": { owner: "x".repeat(40), pid: null, start: null }, "U-4": { owner: null, pid: null, start: null } });
+  assert.deepEqual(claims, { "U-1": { owner: "claude", pid: 4242, start: null, used: null }, "U-2": { owner: null, pid: null, start: null, used: null }, "U-3": { owner: "x".repeat(40), pid: null, start: null, used: null }, "U-4": { owner: null, pid: null, start: null, used: null } });
   assert.equal(D.claimsFrom([{ name: "U-5", pid: "7", start: " Sat Nov  7 01:36:10 2026 \n" }])["U-5"].start, "Sat Nov  7 01:36:10 2026");
+  assert.equal(D.claimsFrom([{ name: "U-6", pid: "7", used: 1762862400000 }])["U-6"].used, 1762862400000);
 });
 
 test("staleClaims: ids whose pid is not in ps; no pid or no rows keeps them", () => {
@@ -681,10 +710,11 @@ test("deviceTags: one pill for lock (claimed) or link (driven), color for livene
   const claim = { owner: "claude", pid: 4242 };
   const same = D.deviceTags(claim, [mcp("t1", true)], agents, []);
   assert.deepEqual(same.map((g) => [g.icon, g.label, g.tone, g.focus, g.terminal]), [["lock", "claude", "working", "agent.focus", "t1"]]);
-  assert.match(same[0].tip, /^Claimed by claude · pid 4242 · Release from the menu\nClick to focus Claude Code/);
+  assert.match(same[0].tip, /^Claimed by claude · pid 4242\nClick to focus Claude Code/);
+  assert.equal(same[0].release, true);
   const held = D.deviceTags({ owner: "codex", pid: null }, [], agents, []);
   assert.deepEqual(held.map((g) => [g.icon, g.label, g.tone, g.focus]), [["lock", "codex", "idle", undefined]]);
-  assert.ok(held[0].tip.endsWith("Claimed by codex · Release from the menu · not attached"));
+  assert.ok(held[0].tip.endsWith("Claimed by codex · not attached"));
   const driving = D.deviceTags(undefined, [mcp("t2", false)], agents, []);
   assert.deepEqual(driving.map((g) => [g.icon, g.label, g.tone]), [["link", "codex", "idle"]]);
   assert.ok(driving[0].tip.endsWith("\nNot claimed"));
@@ -696,6 +726,57 @@ test("deviceTags: one pill for lock (claimed) or link (driven), color for livene
   assert.equal(D.deviceTags({ owner: null, pid: 1 }, [mcp("t2", false)], agents, []).length, 1);
   const pane = D.deviceTags(claim, [{ via: "pane", address: "t3", active: true }], agents, []);
   assert.deepEqual(pane.map((g) => [g.icon, g.label, g.tone, g.focus]), [["lock", "claude", "idle", undefined], ["triangle", "maestro", "blocked", "pane.focus"]]);
+  // Only the claim's pill releases it.
+  assert.deepEqual(mismatch.map((g) => g.release), [true, undefined]);
+  assert.equal(driving[0].release, undefined);
+});
+
+test("deviceTags with the holder's terminal: its session's name, a click that focuses it, mismatch by address", () => {
+  const mcp = (address, active) => ({ via: "mcp", address, active });
+  const icon = { key: "claude", name: "Claude Code", icon: "icons/claude.svg", tint: true };
+  const agents = [
+    { address: "t1", status: "working", title: "Panel vertical size limit", tab_name: "3", space_name: "budget", program: icon },
+    { address: "t2", status: "idle", title: "  ", tab_name: "review", space_name: "budget", program: { key: "claude", name: "Claude Code", icon: null } },
+    { address: "t4", status: "idle", title: "", tab_name: "", space_name: "budget", program: { key: "codex", name: "Codex" } },
+  ];
+  const claim = { owner: "claude", pid: 4242 };
+  // Label: the title, else the tab, else the space, trimmed; the program rides along when it has an icon.
+  const t1 = D.deviceTags(claim, [], agents, [], { holder: "t1" });
+  assert.deepEqual(t1.map((g) => [g.icon, g.label, g.tone, g.focus, g.terminal, g.program, g.release]), [["lock", "Panel vertical size limit", "idle", "agent.focus", "t1", icon, true]]);
+  assert.equal(t1[0].tip, "Click to focus Claude Code\nClaimed by Claude Code · budget / 3 · working · pid 4242 · not attached");
+  assert.equal(D.deviceTags(claim, [], agents, [], { holder: "t2" })[0].label, "review");
+  assert.equal(D.deviceTags(claim, [], agents, [], { holder: "t2" })[0].program, null);
+  assert.equal(D.deviceTags(claim, [], agents, [], { holder: "t4" })[0].label, "budget");
+  // A terminal that isn't an agent: pane.focus, the owner's label.
+  const shell = D.deviceTags(claim, [], agents, [{ address: "t7", program: { key: "zsh", name: "zsh", icon: null } }], { holder: "t7" });
+  assert.deepEqual(shell.map((g) => [g.label, g.focus, g.terminal]), [["claude", "pane.focus", "t7"]]);
+  assert.match(shell[0].tip, /^Click to focus zsh\nClaimed by claude · pid 4242/);
+  // Driving from the holder's terminal: one pill in the driver's tone. From another: a mismatch, even
+  // when both are `claude` (the label rule alone would call it a match).
+  assert.deepEqual(D.deviceTags(claim, [mcp("t1", true)], agents, [], { holder: "t1" }).map((g) => [g.icon, g.tone, g.focus, g.terminal]), [["lock", "working", "agent.focus", "t1"]]);
+  const other = D.deviceTags(claim, [mcp("t2", true)], agents, [], { holder: "t1" });
+  assert.deepEqual(other.map((g) => [g.icon, g.label, g.tone, g.focus, g.terminal]), [["lock", "Panel vertical size limit", "idle", "agent.focus", "t1"], ["triangle", "claude", "blocked", "agent.focus", "t2"]]);
+  // Holder unknown: the label rule, and the lock clicks only when it stands for the first driver.
+  assert.equal(D.deviceTags(claim, [mcp("t2", true)], agents, []).length, 1);
+  assert.equal(D.deviceTags(claim, [mcp("t2", true)], agents, [])[0].terminal, "t2");
+});
+
+test("deviceTags idle text: a hook's claim only, dim from 15 minutes on", () => {
+  const now = Date.UTC(2026, 10, 11, 12), min = 60000, start = "Wed Nov 11 09:00:00 2026";
+  const agents = [{ address: "t1", status: "working", title: "x", tab_name: "1", space_name: "s", program: { key: "claude", name: "Claude Code" } }];
+  const tag = (used, claim = { owner: "claude", pid: 7, start }) => D.deviceTags({ ...claim, used }, [{ via: "mcp", address: "t1", active: true }], agents, [], { holder: "t1", now })[0];
+  assert.equal(tag(now - min).idle, null);
+  assert.equal(tag(now - 14 * min).idle, "idle 14m");
+  assert.equal(tag(now - 14 * min).tone, "working");
+  assert.match(tag(now - 14 * min).tip, /· pid 7 · idle 14m\n/);
+  assert.equal(tag(now - 15 * min).tone, "idle");
+  assert.match(tag(now - 15 * min).tip, /· idle 15m · another agent can take it over\n/);
+  assert.equal(tag(now - 130 * min).idle, "idle 2h");
+  // No pid (a manual reservation), no start (made by hand: never idle to the hook) or no mtime: none.
+  assert.equal(tag(now - 30 * min, { owner: null, pid: null, start: null }).idle, null);
+  assert.equal(tag(now - 30 * min, { owner: null, pid: 7, start: null }).idle, null);
+  assert.equal(tag(null).idle, null);
+  assert.equal(tag(null).tone, "working");
 });
 
 test("Release claim: in the menu only when claimed, after the Maestro items", () => {
