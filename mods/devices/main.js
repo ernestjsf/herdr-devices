@@ -129,8 +129,19 @@ class Panel {
     this.claims = {}; // device claims by id, from the claims folder
     this.holders = {}; // claim pid -> its holder's terminal, as of the last iOS read
     this.seen = shared("devices.changed");
-    this.reload(cx, "ios", !cache);
-    this.reload(cx, "android", !cache);
+    // The first reads start from a timer, not from here: in a panel that takes a screen's place
+    // back (Herdr 0.1.15), a command first run after a plain await inside init never answers, which
+    // left the list frozen on its cache.
+    cx.timer.after(0, (cx) => {
+      this.reload(cx, "ios", !cache);
+      this.reload(cx, "android", !cache);
+      cx.spawn(async (cx) => {
+        try {
+          const dir = await avdHome();
+          for (;;) if (avdListChanged(await watchFolder(dir))) { forgetAvds(); this.reload(cx, "android"); }
+        } catch {} // no AVD home: each read lists it again until there is one
+      });
+    });
     maestroFound(); // checked now, so the first menu already knows
     hookInstalled();
     this.hintHidden = store.get("hintHidden") === true;
@@ -139,12 +150,6 @@ class Panel {
     // and every third tick only once the list has read the same six times (`poll`).
     // The AVDs themselves are listed again only when their .ini files change.
     cx.timer.every(5000, (cx) => this.poll(cx, "android"));
-    cx.spawn(async (cx) => {
-      try {
-        const dir = await avdHome();
-        for (;;) if (avdListChanged(await watchFolder(dir))) { forgetAvds(); this.reload(cx, "android"); }
-      } catch {} // no AVD home: each read lists it again until there is one
-    });
     // Simulators: their device.plist changes on boot and shutdown. Phones can
     // only be polled, and the poll is the simulators' safety net too.
     cx.timer.every(5000, (cx) => this.poll(cx, "ios"));

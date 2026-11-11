@@ -663,6 +663,12 @@ action button reads `Working…` while it runs.
   ~175 ms later, blank in between, and `image()` loads no `http://` path. The
   first version rotated frames through a ring of files; a tap was fine, a
   swipe visibly behind. A terminal block has no such wait.
+- **Start the panel's first reads from a timer, not from `init`** (Herdr
+  0.1.15): in a panel that takes a screen's place back, a command first run
+  after a plain `await` inside `init` (`await null`, a resolved promise) never
+  answers, though one run directly, or after another command's answer, does.
+  The first reload then never ended and the list stayed frozen on its cache,
+  without app tags. `cx.timer.after(0, …)` around the first reloads fixes it.
 - **Herdr drops an ended terminal's block from the layout file**, and then
   unwraps a column left with one child. Anything a later edit needs (the
   block's id and size) rides in the bar's props, which survive.
