@@ -1,6 +1,6 @@
 // Devices: iOS simulators and Android emulators/devices, with actions.
-// One mod, five roles (props.role): none, the panel; over the window "menu"
-// (the right-click popup), "url", "maestro" and "erase" (dialogs). Mod commands carry no
+// One mod, six roles (props.role): none, the panel; over the window "menu"
+// (the right-click popup), "url", "maestro", "erase" and "claimed" (dialogs). Mod commands carry no
 // arguments, so the overlays run their action themselves and the panel
 // reloads on the shared "devices.changed".
 import { View, div, svg } from "gpui-kit";
@@ -41,6 +41,14 @@ function openDialog(role, d, extra = {}, height = role === "url" ? 200 : 212) {
 // with their gaps, padding and 3 px slack.
 const PICK_TOP = 78, PICK_FILTER = 46, PICK_FOOTER = 118;
 const pickerHeight = (n) => PICK_TOP + (n > 6 ? PICK_FILTER : 0) + Math.min(n + 1, 8) * MENU_ROW + PICK_FOOTER;
+
+// The flow last run, again, with the variables it ran with.
+const runAgain = (d, path, cwd) => runMaestro(d, path, cwd, parseVars(shared("devices.maestroVars")?.[path] ?? "") ?? []);
+// The Run Maestro dialog. The flows are listed first, so it opens at its size.
+async function openPicker(d) {
+  const start = await maestroStart();
+  openDialog("maestro", d, start, start.flows.length ? pickerHeight(start.flows.length) : 230);
+}
 
 const menuHeight = (items) => items.length * MENU_ROW + menuDividers(items) * MENU_DIVIDER + 38;
 // The tab folder's last flow is offered again and a missing maestro disables its row,
@@ -381,6 +389,7 @@ class Menu {
     const { device, cwd, lastFlow, maestro, claim } = props();
     this.device = device;
     this.cwd = cwd;
+    this.claim = claim;
     this.items = actionsFor(device, { lastFlow, maestro, claim });
     this.at = -1;
     this.busy = -1;
@@ -392,13 +401,14 @@ class Menu {
     const a = this.items[i], { overlay } = props(), d = this.device;
     if (!a || a.disabled || this.busy >= 0) return;
     if (a.action === "copy" || a.action === "copyapp") { copy(a.action === "copy" ? d.id : d.apps[0], cx); closeOverlay(overlay); return; }
-    if (a.action === "maestroAgain") { closeOverlay(overlay); runMaestro(d, a.path, this.cwd, parseVars(shared("devices.maestroVars")?.[a.path] ?? "") ?? []); return; }
+    // A claimed device: its agent is asked about first ("claimed"), since a run here interrupts it.
+    if (this.claim && (a.action === "maestro" || a.action === "maestroAgain")) { closeOverlay(overlay); openDialog("claimed", d, { owner: this.claim.owner, next: a.action, path: a.path, cwd: this.cwd }); return; }
+    if (a.action === "maestroAgain") { closeOverlay(overlay); runAgain(d, a.path, this.cwd); return; }
     if (a.action === "openurl" || a.action === "erase") { closeOverlay(overlay); openDialog(a.action === "openurl" ? "url" : a.action, d); return; }
     if (a.action === "boot" || a.action === "shutdown") { setShared("devices.request", { action: a.action, device: d, at: Date.now() }); closeOverlay(overlay); return; }
     this.busy = i;
     cx.spawn(async (cx) => {
-      // Maestro lists the flows first, so the dialog opens at its size.
-      if (a.action === "maestro") { const start = await maestroStart(); openDialog("maestro", d, start, start.flows.length ? pickerHeight(start.flows.length) : 230); closeOverlay(overlay); return; }
+      if (a.action === "maestro") { await openPicker(d); closeOverlay(overlay); return; }
       await perform(a.action, d, { app: a.app }); closeOverlay(overlay); cx.notify();
     });
     cx.notify();
@@ -431,7 +441,8 @@ class Menu {
   }
 }
 
-// Open URL, Run Maestro flow and Erase. Styled like Herdr's prompt and confirm; the action's
+// Open URL, Run Maestro flow, Erase and the question before a run on a claimed device
+// ("claimed"). Styled like Herdr's prompt and confirm; the action's
 // error closes nothing (it is also toasted). Run Maestro flow picks from the
 // .maestro folder's flows, or asks for a path when there is none.
 class Dialog {
@@ -514,6 +525,15 @@ class Dialog {
 
   confirm(cx) {
     if (this.busy) return;
+    // Run anyway: what the menu row would have done on an unclaimed device.
+    if (this.role === "claimed") {
+      const { next, overlay } = props();
+      if (next === "maestroAgain") { runAgain(this.device, this.path, this.cwd); closeOverlay(overlay); return; }
+      this.busy = true;
+      cx.spawn(async () => { await openPicker(this.device); closeOverlay(overlay); });
+      cx.notify();
+      return;
+    }
     if (this.role === "maestro") {
       const path = this.input.value().trim();
       if (!path) { this.error = "Type a flow file or folder path, or Browse…"; cx.notify(); return; }
@@ -587,8 +607,10 @@ class Dialog {
 
   render() {
     if (this.picking) return this.picker();
-    const t = theme(), d = this.device, erase = this.role === "erase", maestro = this.role === "maestro";
-    const detail = maestro
+    const t = theme(), d = this.device, erase = this.role === "erase", maestro = this.role === "maestro", claimed = this.role === "claimed";
+    const detail = claimed
+      ? `${props().owner ?? "An agent"} holds ${d.name}. A Maestro run from here will interrupt what it is doing.`
+      : maestro
       ? `Opens a pane below running maestro --device ${d.id} test <path>.`
       : !erase
       ? `Opens it on ${d.name} (${d.kind === "sim" ? "xcrun simctl openurl" : d.kind === "ios" ? "xcrun devicectl, in Safari" : "am start -a android.intent.action.VIEW"}).`
@@ -598,14 +620,14 @@ class Dialog {
     return v_flex().id("devices-dialog").track_focus(this.handle).size_full().min_h(0).p(18).gap(10).bg(t.popover).text_size(13).text_color(t.foreground)
       .on_key_down((e, cx) => {
         if (e.key === "escape") closeOverlay(props().overlay);
-        else if (e.key === "enter" && erase) this.confirm(cx);
+        else if (e.key === "enter" && !this.input) this.confirm(cx); // with a field, its submit confirms
         else return;
         cx.stop_propagation();
       })
-      .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child(erase ? `Erase ${d.name}?` : maestro ? "Run Maestro flow" : "Open URL"))
+      .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child(erase ? `Erase ${d.name}?` : claimed ? `${d.name} is claimed` : maestro ? "Run Maestro flow" : "Open URL"))
         .child(div().text_size(11).text_color(t.dim).child("Esc")))
       .child(div().text_color(t.muted).child(detail))
-      .when(!erase, (el) => el.child(Input.new(this.input).h(36).px(10).rounded(9).border_1().border_color(t.accent).bg(t.background).text_size(12.8).text_color(t.foreground)))
+      .when(Boolean(this.input), (el) => el.child(Input.new(this.input).h(36).px(10).rounded(9).border_1().border_color(t.accent).bg(t.background).text_size(12.8).text_color(t.foreground)))
       .when(Boolean(this.error), (el) => el.child(div().text_size(12).text_color(t.ansi1).child(this.error ?? "")))
       .child(div().flex_1())
       .child(h_flex().gap(8).justify_end()
@@ -614,14 +636,14 @@ class Dialog {
           if (path) { this.input.set_value(path); this.error = null; cx.notify(); }
         }))).child(div().flex_1()))
         .child(this.button("dd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
-        .child(this.button("dd-ok", this.busy ? "Working…" : erase ? "Erase" : maestro ? "Run" : "Open", true, (_e, cx) => this.confirm(cx))));
+        .child(this.button("dd-ok", this.busy ? "Working…" : erase ? "Erase" : claimed ? "Run anyway" : maestro ? "Run" : "Open", true, (_e, cx) => this.confirm(cx))));
   }
 }
 
 export default class Devices extends View {
   init(_props, cx) {
     const role = props()?.role;
-    this.part = role === "menu" ? new Menu() : role === "url" || role === "maestro" || role === "erase" ? new Dialog() : new Panel();
+    this.part = role === "menu" ? new Menu() : role === "url" || role === "maestro" || role === "erase" || role === "claimed" ? new Dialog() : new Panel();
     this.part.init(cx);
   }
 
