@@ -11,9 +11,9 @@
 // to scale and send); once it rests, the last one is drawn again at the pane's full sharpness.
 // An emulator's frames are PNGs at the width asked for, drawn as they come.
 import { spawn, execFile, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, statSync, appendFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, appendFileSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
@@ -33,16 +33,21 @@ const out = (s) => process.stdout.write(s);
 const run = (argv, options = {}) => new Promise((resolve) => execFile(argv[0], argv.slice(1), { timeout: 120000, ...options }, (err, stdout, stderr) => resolve({ code: err ? 1 : 0, stdout, stderr })));
 const clamp = (v) => Math.min(1, Math.max(0, v));
 
-// The longest side, in pixels, of a simulator frame drawn while the screen moves. A quarter of
-// the device's own size is the cheapest for the JPEG decoder; measured on a 1206x2622 frame, 600
-// costs ~23 ms a frame end to end (scale 10, deflate 5, the terminal 8), 1100 ~72 ms.
-// HERDR_DEVICES_MOVING_SIDE trades delay for sharpness in motion.
-const MOVING_SIDE = Number(process.env.HERDR_DEVICES_MOVING_SIDE) || 656;
+// A frame drawn while the screen moves. The terminal takes a frame in time that grows with its
+// bytes, not its pixels (about 1 ms per 30 KB, measured), so a moving frame is kept under a byte
+// budget instead of being made small: half the device's own size (the cheapest the JPEG decoder
+// does well), with only its top colour bits, which is not seen in motion and deflates to less
+// than half. The bits follow the last frame's size: fewer for a busy screen, more for a calm one.
+// HERDR_DEVICES_MOVING_SIDE caps the longest side, HERDR_DEVICES_MOVING_BITS fixes the bits.
+const MOVING_SIDE = Number(process.env.HERDR_DEVICES_MOVING_SIDE) || 0;
+const MOVING_BITS = Number(process.env.HERDR_DEVICES_MOVING_BITS) || 0;
+const BUDGET = [150 << 10, 360 << 10]; // bytes: under the first a bit is added, over the second one is dropped
+const SETTLE = 30; // frames between two changes of the bits, or the picture would flicker between them
 // This long without a new frame, and no finger down, and the screen counts as resting. A sharp
-// picture is several megabytes: compressing it and pushing it through the terminal holds up the
-// moving frames behind it (measured: gaps of 200 to 900 ms when it was drawn at every short
-// pause), so it is drawn late, never mid-gesture, and compressed off the main thread.
-const REST_MS = 350;
+// picture is about a megabyte: pushing it through the terminal holds up the moving frames behind
+// it (measured: gaps of 200 to 900 ms when it was drawn at every short pause), so it is drawn
+// late, never mid-gesture, and made by a scaler of its own.
+const REST_MS = 250;
 const IMAGES = [7301, 7302]; // two ids: the new frame goes up before the old one comes down
 
 // ---- the terminal ----
@@ -64,20 +69,60 @@ function cellSize() {
 }
 
 // Counted while the debug log is on: a line a second while frames come.
-const stats = { got: 0, drawn: 0, scale: 0, send: 0, gap: 0, lastDraw: 0 };
+const stats = { got: 0, drawn: 0, scale: 0, send: 0, gap: 0, lastDraw: 0, bytes: 0, bits: 0 };
 if (debug.on) setInterval(() => {
-  if (stats.got) debug(`1s: ${stats.got} frames in, ${stats.drawn} drawn, scale ${(stats.scale / (stats.drawn || 1)).toFixed(1)} ms, deflate+write ${(stats.send / (stats.drawn || 1)).toFixed(1)} ms, longest gap ${stats.gap.toFixed(0)} ms`);
-  Object.assign(stats, { got: 0, drawn: 0, scale: 0, send: 0, gap: 0 });
+  if (stats.got) debug(`1s: ${stats.got} frames in, ${stats.drawn} drawn, scale ${(stats.scale / (stats.drawn || 1)).toFixed(1)} ms, write ${(stats.send / (stats.drawn || 1)).toFixed(1)} ms, ${((stats.bytes / (stats.drawn || 1)) / 1024) | 0} KB a frame at ${stats.bits} bits, longest gap ${stats.gap.toFixed(0)} ms`);
+  Object.assign(stats, { got: 0, drawn: 0, scale: 0, send: 0, gap: 0, bytes: 0 });
 }, 1000).unref();
-const view = { cell: cellSize(), aspect: kind === "sim" ? 1206 / 2622 : 1080 / 2400, box: null, note: "Connecting…", shown: 0, compress: true, drawn: 0 };
+const view = { cell: cellSize(), aspect: kind === "sim" ? 1206 / 2622 : 1080 / 2400, box: null, note: "Connecting…", shown: 0, drawn: 0 };
 
-// Where the picture goes: as large as fits, centered.
+// Where the picture goes: as large as fits, centered, with a cell free all round for the bezel.
 function layout() {
   const cols = process.stdout.columns ?? 80, rows = process.stdout.rows ?? 24, { w: cw, h: ch } = view.cell;
-  const h = Math.min(rows * ch, (cols * cw) / view.aspect), w = h * view.aspect;
-  const c = Math.max(1, Math.min(cols, Math.round(w / cw))), r = Math.max(1, Math.min(rows, Math.round(h / ch)));
+  const h = Math.min((rows - 2) * ch, ((cols - 2) * cw) / view.aspect), w = h * view.aspect;
+  const c = Math.max(1, Math.min(cols - 2, Math.round(w / cw))), r = Math.max(1, Math.min(rows - 2, Math.round(h / ch)));
   const col = Math.floor((cols - c) / 2) + 1, row = Math.floor((rows - r) / 2) + 1;
   view.box = { col, row, c, r, x: (col - 1) * cw, y: (row - 1) * ch, w: c * cw, h: r * ch };
+}
+
+// The bezel: one picture drawn once per layout, a cell larger than the screen all round and laid
+// over it (z=1), transparent but for a ring that hugs the screen. The frames' square corners
+// reach past the ring's round ones, so there the bezel is painted in the terminal's background
+// colour (asked for with OSC 11). The frames themselves stay as cheap as without it.
+const BEZEL = 7300;
+let background = [0x17, 0x18, 0x1c]; // until the terminal answers
+function bezel() {
+  const { w: cw, h: ch } = view.cell, b = view.box, W = Math.round((b.c + 2) * cw), H = Math.round((b.r + 2) * ch);
+  const thick = Math.max(4, Math.min(12, Math.floor(Math.min(cw, ch)) - 3)), short = Math.min(b.w, b.h);
+  // The screen's corner radius: a phone's is about an eighth of its width, a tablet's far less.
+  const inner = short * (kind === "sim" ? (Math.min(view.aspect, 1 / view.aspect) > 0.6 ? 0.03 : 0.125) : 0.07), outer = inner + thick;
+  const cx = cw + b.w / 2, cy = ch + b.h / 2, px = Buffer.alloc(W * H * 4);
+  // How far a point is outside a rounded box around the middle (negative inside).
+  const outside = (x, y, hw, hh, r) => { const qx = Math.abs(x - cx) - (hw - r), qy = Math.abs(y - cy) - (hh - r); return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r; };
+  const cover = (d) => Math.min(1, Math.max(0, 0.5 - d)); // a pixel's share inside an edge
+  for (let y = 0; y < H; y++) {
+    const fromEdge = Math.min(y + 0.5 - (ch - thick), ch + b.h + thick - (y + 0.5));
+    if (fromEdge < -1) continue; // a row above or below the ring
+    for (let x = 0; x < W; x++) {
+      const dOut = outside(x + 0.5, y + 0.5, b.w / 2 + thick, b.h / 2 + thick, outer);
+      if (dOut > 0.5) { // outside the ring: clear, except over a frame's corner
+        if (Math.abs(x + 0.5 - cx) < b.w / 2 + 1 && Math.abs(y + 0.5 - cy) < b.h / 2 + 1) { const i = (y * W + x) * 4; px[i] = background[0]; px[i + 1] = background[1]; px[i + 2] = background[2]; px[i + 3] = 255; }
+        continue;
+      }
+      const dIn = outside(x + 0.5, y + 0.5, b.w / 2, b.h / 2, inner);
+      if (dIn < -0.5) { if (dIn < -outer) x = Math.max(x, Math.floor(2 * cx - x - 2)); continue; } // the screen: skip across it
+      const ring = cover(dOut), rim = cover(-1.5 - dOut), i = (y * W + x) * 4; // a lighter line along the outer edge
+      const colour = [0x3a - rim * 0x1e, 0x3a - rim * 0x1e, 0x3c - rim * 0x1e];
+      // Over a frame's corner the ring's soft outer edge fades into the background, not into the frame.
+      const overFrame = Math.abs(x + 0.5 - cx) < b.w / 2 + 1 && Math.abs(y + 0.5 - cy) < b.h / 2 + 1 && dIn > 0;
+      for (let c = 0; c < 3; c++) px[i + c] = overFrame ? background[c] + (colour[c] - background[c]) * ring : colour[c];
+      px[i + 3] = Math.round((overFrame ? 1 : ring * (1 - cover(dIn))) * 255);
+    }
+  }
+  const b64 = zlib.deflateSync(px, { level: 1 }).toString("base64");
+  let s = `\x1b_Ga=d,d=I,i=${BEZEL},q=2\x1b\\\x1b[${b.row - 1};${b.col - 1}H`;
+  for (let i = 0; i < b64.length; i += 4096) s += `\x1b_G${i === 0 ? `a=T,f=32,o=z,s=${W},v=${H},i=${BEZEL},p=1,c=${b.c + 2},r=${b.r + 2},z=1,C=1,q=2,` : ""}m=${i + 4096 < b64.length ? 1 : 0};${b64.slice(i, i + 4096)}\x1b\\`;
+  out(s);
 }
 
 // A line in the middle, while there is no picture.
@@ -91,7 +136,8 @@ let again = () => {}; // draws the last frame once more
 function redraw() {
   debug(`redraw: ${process.stdout.columns}x${process.stdout.rows}, cell ${view.cell.w}x${view.cell.h}`);
   out("\x1b[2J");
-  for (const image of IMAGES) out(`\x1b_Ga=d,d=I,i=${image},q=2\x1b\\`);
+  for (const image of [...IMAGES, BEZEL]) out(`\x1b_Ga=d,d=I,i=${image},q=2\x1b\\`);
+  view.bezel = false;
   layout();
   if (view.note) note(view.note);
   again();
@@ -99,7 +145,8 @@ function redraw() {
 
 // One frame onto the screen, in 4096-byte pieces. `format`: the protocol's f, o, s and v.
 function draw(format, bytes) {
-  if (view.note) { view.note = ""; out("\x1b[2J"); }
+  if (view.note) { view.note = ""; out("\x1b[2J"); view.bezel = false; }
+  if (!view.bezel) { view.bezel = true; bezel(); }
   if (view.drawn < 3) debug(`draw ${format}, ${bytes.length} bytes`);
   const { col, row, c, r } = view.box, image = IMAGES[view.shown ^ 1], old = IMAGES[view.shown], b64 = bytes.toString("base64");
   let s = `\x1b[?2026h\x1b[${row};${col}H`;
@@ -177,6 +224,17 @@ function simulator() {
   let ws = null, base = "", owned = false, rest = null, last = null, socket = null;
   const send = (tag, body) => { if (!ws || ws.closed) ws = socketTo(`${base.replace(/^http/, "ws")}/ws`); ws.send(S.wsFrame(tag, body)); };
 
+  // serve-sim's own note of the helper running for this simulator (its pid, port and stream),
+  // or null. Read here rather than asked for with `serve-sim --list` and ended with `--kill`:
+  // each of those is a slow npx start, and one of them hanging held every viewer at Connecting.
+  function helperState() {
+    try {
+      const state = JSON.parse(readFileSync(join(tmpdir(), "serve-sim", `server-${id}.json`), "utf8"));
+      process.kill(state.pid, 0); // throws when that process is gone
+      return state;
+    } catch { return null; }
+  }
+
   function scalerPath() {
     const source = join(here, "frame-scale.swift"), bin = join(cache, "frame-scale");
     if (!existsSync(bin) || statSync(bin).mtimeMs < statSync(source).mtimeMs) {
@@ -187,45 +245,67 @@ function simulator() {
     return bin;
   }
 
-  // A scaler process: JPEGs in, raw pictures out, one at a time. A frame that arrives while it
-  // works replaces the one waiting, so the newest wins.
-  function scalerFor(bin, side, done) {
-    const child = spawn(bin, [], { stdio: ["pipe", "pipe", "ignore"] });
-    let busy = null, waiting = null, pending = Buffer.alloc(0);
-    const next = (job) => {
-      if (busy) { waiting = job; return; }
-      busy = job;
-      const head = Buffer.alloc(8);
+  // `size` scaler processes: JPEGs in, PNGs out, each one frame at a time. A frame goes to an idle
+  // one at once; with none idle it waits, and a newer frame replaces it, so the newest wins.
+  // `ask(job)`: the longest side and colour bits. Two finish out of order now and then: `done`
+  // gets every picture, and tells by the job which is newer.
+  function scalers(bin, size, ask, done) {
+    let waiting = null;
+    const idle = [], all = [];
+    const give = (worker, job) => {
+      worker.job = job;
+      const head = Buffer.alloc(12), { side, bits } = ask(job);
       head.writeUInt32BE(job.jpeg.length, 0);
-      head.writeUInt32BE(side(), 4);
-      child.stdin.write(head);
-      child.stdin.write(job.jpeg);
+      head.writeUInt32BE(side, 4);
+      head.writeUInt32BE(bits, 8);
+      worker.child.stdin.write(head);
+      worker.child.stdin.write(job.jpeg);
     };
-    child.stdout.on("data", (chunk) => {
-      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk;
-      while (pending.length >= 8) {
-        const w = pending.readUInt32BE(0), h = pending.readUInt32BE(4), size = w * h * 4;
-        if (pending.length < 8 + size) return;
-        const rgba = pending.subarray(8, 8 + size), job = busy;
-        pending = pending.subarray(8 + size);
-        busy = null;
-        if (w && h) done(job, w, h, rgba);
-        if (waiting) { const job = waiting; waiting = null; next(job); }
-      }
-    });
-    child.on("exit", () => quit("The frame scaler stopped."));
-    return { next, stop() { child.removeAllListeners("exit"); child.kill(); } };
+    for (let i = 0; i < size; i++) {
+      const worker = { child: spawn(bin, [], { stdio: ["pipe", "pipe", "ignore"] }), job: null, pending: Buffer.alloc(0) };
+      worker.child.stdout.on("data", (chunk) => {
+        worker.pending = worker.pending.length ? Buffer.concat([worker.pending, chunk]) : chunk;
+        while (worker.pending.length >= 12) {
+          const w = worker.pending.readUInt32BE(0), h = worker.pending.readUInt32BE(4), bytes = worker.pending.readUInt32BE(8);
+          if (worker.pending.length < 12 + bytes) return;
+          const png = worker.pending.subarray(12, 12 + bytes), job = worker.job;
+          worker.pending = worker.pending.subarray(12 + bytes);
+          worker.job = null;
+          if (w && h) done(job, w, h, png);
+          if (waiting) { const next = waiting; waiting = null; give(worker, next); } else idle.push(worker);
+        }
+      });
+      worker.child.on("exit", () => quit("The frame scaler stopped."));
+      idle.push(worker);
+      all.push(worker);
+    }
+    return { next(job) { const worker = idle.pop(); if (worker) give(worker, job); else waiting = job; }, stop() { for (const w of all) { w.child.removeAllListeners("exit"); w.child.kill(); } } };
   }
 
   const full = () => Math.round(Math.max(view.box.w, view.box.h));
-  const show = (w, h, rgba) => { if (!turnedTo(w / h)) draw(`f=32,s=${w},v=${h}${view.compress ? ",o=z" : ""}`, view.compress ? zlib.deflateSync(rgba, { level: 1 }) : rgba); };
-  let fast = null, sharp = null, count = 0;
+  let fast = null, sharp = null, count = 0, newest = 0, bits = MOVING_BITS || 5, steady = 0;
+  // A moving frame: half the device's size unless the picture is smaller than that.
+  function moving(job) {
+    const size = S.imageSize(job.jpeg), half = size ? Math.ceil(Math.max(size.width, size.height) / 2) : 1311;
+    return { side: Math.min(full(), MOVING_SIDE || half), bits };
+  }
+  function showMoving(job, w, h, png) {
+    if (job.n < newest) return; // the other scaler's newer picture is already up
+    newest = job.n;
+    const scaledAt = performance.now();
+    if (!turnedTo(w / h)) draw("f=100", png);
+    if (!MOVING_BITS && ++steady > SETTLE) {
+      const next = png.length > BUDGET[1] ? Math.max(4, bits - 1) : png.length < BUDGET[0] ? Math.min(6, bits + 1) : bits;
+      if (next !== bits) { bits = next; steady = 0; }
+    }
+    const now = performance.now();
+    stats.drawn++; stats.scale += scaledAt - job.at; stats.send += now - scaledAt; stats.bytes += png.length; stats.bits = bits;
+    if (stats.lastDraw) stats.gap = Math.max(stats.gap, now - stats.lastDraw);
+    stats.lastDraw = now;
+  }
   // The sharp picture, unless the screen moved on or a finger went down while it was made.
-  const settled = (n) => n === count && !touch;
-  function showSharp(job, w, h, rgba) {
-    if (!settled(job.n) || turnedTo(w / h)) return;
-    if (!view.compress) return draw(`f=32,s=${w},v=${h}`, rgba);
-    zlib.deflate(Buffer.from(rgba), { level: 1 }, (err, bytes) => { if (!err && settled(job.n) && !done) draw(`f=32,s=${w},v=${h},o=z`, bytes); });
+  function showSharp(job, w, h, png) {
+    if (job.n === count && !touch && !turnedTo(w / h)) draw("f=100", png);
   }
   // Waits out a finger that is still down, then asks for the sharp picture.
   function sharpen(jpeg, n) {
@@ -248,30 +328,22 @@ function simulator() {
   return {
     async start() {
       const bin = scalerPath();
-      fast = scalerFor(bin, () => Math.min(full(), MOVING_SIDE), (job, w, h, rgba) => {
-        const scaledAt = performance.now();
-        show(w, h, rgba);
-        const now = performance.now();
-        stats.drawn++; stats.scale += scaledAt - job.at; stats.send += now - scaledAt;
-        if (stats.lastDraw) stats.gap = Math.max(stats.gap, now - stats.lastDraw);
-        stats.lastDraw = now;
-      });
-      sharp = scalerFor(bin, () => Math.min(full(), 2622), showSharp); // never larger than a device's own frame
+      fast = scalers(bin, 2, moving, showMoving);
+      sharp = scalers(bin, 1, () => ({ side: Math.min(full(), 2622), bits: 8 }), showSharp); // never larger than a device's own frame
       note("Connecting…");
-      const listed = S.serveSimJson((await run(S.serveSimArgv(["--list", "-q", id]))).stdout);
-      const running = S.runningHelper(listed, id);
-      const started = running ?? S.serveSimJson((await run(S.serveSimArgv(["--detach", "-q", id]))).stdout);
-      owned = !running;
-      const at = S.helperAddress(started.streamUrl);
-      if (!at) throw new Error("serve-sim gave no stream address (is the simulator booted?)");
+      let helper = helperState();
+      owned = !helper;
+      if (!helper) {
+        const started = S.serveSimJson((await run(S.serveSimArgv(["--detach", "-q", id]))).stdout);
+        helper = started.streamUrl ? started : helperState();
+      }
+      const at = S.helperAddress(helper?.streamUrl);
+      if (!at) throw new Error("serve-sim didn't start a stream (is the simulator booted?)");
       base = at.base;
       again = () => last && sharp.next({ jpeg: last, n: count });
       socket = stream(at.host, at.port, at.path, frame);
     },
-    refused() { // a terminal that takes no deflated pixels gets them plain
-      if (view.compress && view.drawn <= 3) view.compress = false;
-      again();
-    },
+    refused: () => again(), // a refused frame is one lost: the last is drawn again
     touch: (type, p, edge) => send(S.TAG.touch, edge ? { type, x: p.x, y: p.y, edge } : { type, x: p.x, y: p.y }),
     scroll: (dy, p) => send(S.TAG.scroll, { dx: 0, dy, x: p.x, y: p.y }),
     key(k) {
@@ -293,7 +365,7 @@ function simulator() {
       ws?.close();
       fast?.stop();
       sharp?.stop();
-      if (owned) await run(S.serveSimArgv(["--kill", id]));
+      if (owned) try { process.kill(helperState().pid); } catch {}
     },
   };
 }
@@ -406,6 +478,13 @@ function typed(text) {
     if (!FIXED_CELL && !(Number(h) === 20 && Number(w) === 10) && Math.abs(height - view.cell.h) > 0.5) { view.cell.h = height; redraw(); }
     return "";
   });
+  // The terminal's background colour, asked with OSC 11, for the bezel's corners.
+  text = text.replace(/\x1b\]11;rgb:([0-9a-f]+)\/([0-9a-f]+)\/([0-9a-f]+)(?:\x07|\x1b\\)/gi, (_m, r, g, b) => {
+    const next = [r, g, b].map((v) => parseInt(v.slice(0, 2).padEnd(2, v[0]), 16));
+    debug(`background: ${next}`);
+    if (next.join() !== background.join()) { background = next; view.bezel = false; again(); }
+    return "";
+  });
   text = text.replace(/\x1b_G([^\x1b]*)\x1b\\/g, (_m, reply) => { debug(`terminal: ${reply}`); if (/;E[A-Z]+/.test(reply) && !done) device.refused(); return ""; });
   if (failed) { if (text.length) quit(); return; } // any key closes the reason
   if (done) return;
@@ -444,7 +523,7 @@ function quit(message) {
   if (done) { if (failed && !message) leave(1); return; }
   done = true;
   debug(`quit: ${message ?? "asked to"}`);
-  for (const image of IMAGES) out(`\x1b_Ga=d,d=I,i=${image},q=2\x1b\\`);
+  for (const image of [...IMAGES, BEZEL]) out(`\x1b_Ga=d,d=I,i=${image},q=2\x1b\\`);
   out("\x1b[?1002l\x1b[?1006l\x1b[?1016l");
   failed = Boolean(message);
   if (failed) note(message);
@@ -474,7 +553,7 @@ try {
   await device.start();
   if (done) await device.stop(); // asked to stop while it started
   process.stdout.on("resize", () => { redraw(); out("\x1b[16t"); });
-  out("\x1b[?1002h\x1b[?1006h\x1b[?1016h\x1b[16t");
+  out("\x1b[?1002h\x1b[?1006h\x1b[?1016h\x1b[16t\x1b]11;?\x1b\\");
   debug(`started ${kind} ${id}: cell ${view.cell.w}x${view.cell.h}, ${process.stdout.columns}x${process.stdout.rows}`);
 } catch (e) {
   quit(`Couldn't show the screen: ${e.message}`);

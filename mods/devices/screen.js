@@ -11,12 +11,12 @@ export const canShow = (d) => d.state === "on" && (d.kind === "sim" || ((d.kind 
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-// Width over height, from a PNG's IHDR or a JPEG's start-of-frame; null for anything else.
-export function imageAspect(bytes) {
+// A picture's size in pixels, from a PNG's IHDR or a JPEG's start-of-frame; null for anything else.
+export function imageSize(bytes) {
   if (bytes.length > 24 && bytes[0] === 0x89 && bytes[1] === 0x50) {
     const u32 = (i) => ((bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3]) >>> 0;
-    const w = u32(16), h = u32(20);
-    return w && h ? w / h : null;
+    const width = u32(16), height = u32(20);
+    return width && height ? { width, height } : null;
   }
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   for (let i = 2; i + 9 < bytes.length; ) {
@@ -24,12 +24,18 @@ export function imageAspect(bytes) {
     const marker = bytes[i + 1];
     // Start of frame: every C0..CF but the huffman (C4), JPEG (C8) and arithmetic (CC) tables.
     if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      const h = (bytes[i + 5] << 8) | bytes[i + 6], w = (bytes[i + 7] << 8) | bytes[i + 8];
-      return w && h ? w / h : null;
+      const height = (bytes[i + 5] << 8) | bytes[i + 6], width = (bytes[i + 7] << 8) | bytes[i + 8];
+      return width && height ? { width, height } : null;
     }
     i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3]);
   }
   return null;
+}
+
+// Width over height of the same.
+export function imageAspect(bytes) {
+  const size = imageSize(bytes);
+  return size ? size.width / size.height : null;
 }
 
 // An HTTP response read off a raw socket: push() what the socket gave and get back the body's
