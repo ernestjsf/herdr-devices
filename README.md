@@ -34,6 +34,8 @@ herdr-app do pane.split --direction right --mod devices
 
 ## The screen
 
+<img src="docs/herdr.png" alt="A Herdr window: an agent session on the left, the Devices list, and a simulator's live screen with the session that drives it named on the bar">
+
 Press the monitor icon on a running device, or `V`. The screen takes the panel's place under a bar with Home, Lock, volume and Rotate. The arrow goes back.
 
 - Click to tap, drag to swipe, scroll with the wheel, type once you've clicked the screen.
