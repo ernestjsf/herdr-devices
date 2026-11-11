@@ -439,7 +439,7 @@ class Menu {
       .on_key_down((e, cx) => {
         const n = this.items.length;
         if (e.key === "down") this.at = (this.at + 1) % n;
-        else if (e.key === "up") this.at = (this.at - 1 + n) % n;
+        else if (e.key === "up") this.at = this.at < 0 ? n - 1 : (this.at - 1 + n) % n; // none selected: the last
         else if (e.key === "enter") this.choose(this.at, cx);
         else if (e.key === "escape") closeOverlay(props().overlay);
         else return;
