@@ -24,7 +24,7 @@ and type on it while your agent drives the same device.
 
 ## Actions
 
-Hover a row for Boot or Shut down, Show screen, Screenshot and More. Right-click for the full menu. Clicking a booted simulator or emulator brings its window to the front. Arrow keys, Enter, space, V, S and M work once the list has focus.
+Hover a row for Boot or Shut down, Bring window forward, Show screen, Screenshot and More. Right-click for the full menu. Clicking a row only selects it; the window icon (or Enter) brings a booted simulator or emulator to the front. Arrow keys, Enter, space, V, S and M work once the list has focus.
 
 | Action     | Simulator                          | Android                                              |
 |------------|------------------------------------|------------------------------------------------------|
@@ -48,7 +48,7 @@ Screenshots go to `~/Desktop`. An emulator started from the panel logs to `$TMPD
 
 ## The screen
 
-**Show screen** (the monitor icon on a running row, the menu, or V) replaces the list with that device's screen. The arrow in the header goes back to the list and stops the stream.
+**Show screen** (the monitor icon on a running row, or V) replaces the list with that device's screen. The arrow in the header goes back to the list and stops the stream.
 
 - Click to tap, drag to swipe, scroll with the wheel or trackpad, and type once you've clicked the screen. ⌘ chords stay Herdr's.
 - The buttons above the screen press Home, Lock and the volume keys and rotate the device. On iOS one more shows or hides the software keyboard.
@@ -176,7 +176,7 @@ They cover `devices.js` (parsing and command building), `screen.js` (the screen 
 
 - iOS needs macOS and Xcode. The Android half should work on Linux, untested.
 - A claim without a pid file stays until released from the menu or the pill's ×.
-- Clicking a booted device brings its window forward. On macOS the Simulator part needs Accessibility access for Herdr (System Settings → Privacy & Security → Accessibility); on Linux it needs `xdotool` and an X11 session (Wayland can't activate windows). Linux and Windows are untested live.
+- The window icon on a booted device brings its window forward. On macOS the Simulator part needs Accessibility access for Herdr (System Settings → Privacy & Security → Accessibility); on Linux it needs `xdotool` and an X11 session (Wayland can't activate windows). Linux and Windows are untested live.
 - The screen view needs Herdr 0.1.13 or later and has not been run in Herdr yet. Its readers, input mappings and commands are covered by tests, and the view was exercised against stand-ins for Herdr, serve-sim and the emulator, not on a real device.
 - Tested on macOS with Herdr 0.1.10. AVD erase, Android screenshots and Open URL, and connected iOS devices are covered by tests, not run live yet.
 

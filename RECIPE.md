@@ -64,7 +64,7 @@ in `foreground`. Top to bottom:
     3px out to the right and 2px down; off it is `dim`. Booting/stopping a 13px
     spinning ring in `working` takes its place; offline, unauthorized and other
     adb states a 12px filled triangle in `blocked`.
-  - **Hover icons**, at most four, 24px squares, radius 5, `raised` under the
+  - **Hover icons**, at most five, 24px squares, radius 5, `raised` under the
     pointer, 13px icons in `muted`: Shut down (power) when on or Boot (play)
     when off — simulators and AVDs, not during a phase, except Shut down while
     `booting` cancels the boot (a simulator always, an AVD once it has a serial);
@@ -333,7 +333,9 @@ action button reads `Working…` while it runs.
   An AVD booting or erasing for over 10 s whose emulator `pgrep -f -- "-avd
   <name>( |$)"` no longer finds ends at once with `Couldn't boot <name>` (or
   erase) and the last non-empty line of its log, else `emulator exited`.
-- **Click a row**: it becomes `selected`. A booted simulator or AVD: its window
+- **Click a row**: it becomes `selected`, and nothing else (in the rail, which has no
+  hover icons, the click also does what the window icon does). **Bring window forward** (the
+  `app-window` hover icon after the power icon, or Enter, on a booted simulator or AVD): its window
   to the front (`focusCommand`). macOS simulator: `osascript` clicks its item in
   Simulator's Window menu (needs Accessibility access; else `open -a Simulator`);
   macOS AVD: `osascript` sets its `qemu-system-*` process (from `pgrep`)
@@ -439,8 +441,8 @@ action button reads `Working…` while it runs.
 - The footer's "ago" is redrawn every 10 s. Nothing animates on a background
   refresh.
 
-- **Show screen** (the `monitor` hover icon of a running row, the menu's first
-  item of the Screenshot group, or `V` on the selected row): for a booted
+- **Show screen** (the `monitor` hover icon of a running row, or `V` on the selected
+  row; not in the menu): for a booted
   simulator, a running emulator and an authorized phone, never a connected
   iPhone. The panel's content becomes the screen view; Back returns to the list.
   The menu hands it to the panel through `devices.request`, like Boot.
@@ -504,7 +506,7 @@ action button reads `Working…` while it runs.
   avd? }`, `deviceKey` (an AVD by name, so its key survives its serial),
   `sortRecent`, `updateUsed`, `foldRows`, `fitsUnfolded`, `filterSections`, `splitRunning`,
   `runningDetail`, `settlePending`, `launchStep`, `phaseOf`, `glyphOf`,
-  `actionsFor` (the menu), `dividerBefore` and `menuDividers` (its sections), `hoverActions` (at most four), `primaryAction` (the
+  `actionsFor` (the menu), `dividerBefore` and `menuDividers` (its sections), `hoverActions` (at most five), `primaryAction` (the
   row click), `toggleAction` (space), `stepSelection` (up / down), `stepsFor` (the argv of every action), `footerText`,
   `toolCandidates`, `stillMissing`, `checkedLately`, `sameApps`, `dropClaimArgv`, `execFailure`, `rejectionLine`,
   `errorLine`, `emulatorLogPath`, `avdProcessPattern`, `lastLine`,
