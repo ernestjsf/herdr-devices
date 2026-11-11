@@ -7,7 +7,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
 import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
-import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
+import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, killEmulator, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -185,7 +185,7 @@ class Panel {
       if (step === "done") completed.add(key);
       else if (step === "kill") await endWipe(d);
       else if (step === "gone") gone[key] = await emulatorLastLine(p.avd);
-      else if (step === "late" && p.phase === "erasing") gone[key] = "The wipe didn't finish in three minutes.";
+      else if (step === "late" && p.phase === "erasing") { await killEmulator(p.avd); gone[key] = "The wipe didn't finish in three minutes, so its emulator was stopped."; }
     }
     const now = shared("devices.pending") ?? {}; // read again: a press may have landed meanwhile
     // Only the same launch, once: another copy may have ended it meanwhile.

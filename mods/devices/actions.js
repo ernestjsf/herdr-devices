@@ -275,6 +275,9 @@ export async function emulatorRunning(avd) {
   return r?.code !== 1;
 }
 
+// Stops this AVD's emulator processes: a wipe that never booted has no window to close.
+export const killEmulator = (avd) => exec("pkill", ["-f", "--", D.avdProcessPattern(avd)]).catch(() => null);
+
 // The pids of this AVD's emulator processes, oldest first.
 const emulatorPids = async (avd) => ((await pgrep(avd))?.stdout ?? "").split(/\s+/).filter(Boolean);
 
