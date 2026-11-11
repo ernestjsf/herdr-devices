@@ -1,4 +1,4 @@
-# Devices, a Herdr mod
+# Herdr-devices
 
 Your iOS simulators and Android emulators in a side panel of [Herdr](https://herdr.dev), with a live screen you can tap and swipe while your agent drives the same device.
 
