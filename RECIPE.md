@@ -22,28 +22,40 @@ in `foreground`. Top to bottom:
   first read, a Refresh or a panel Screenshot/Copy/URL action runs, a 14px ring
   spinner in `muted` (Herdr's `mods/workspace-chrome/spinner.svg`,
   `.spin(900)`) takes its place. Background polls never show it.
+- **Filter field**, not in the rail: 38px in all, 8px side padding, 8px above
+  and 2px below a 28px input (8px inner side padding, radius 7, 1px `border`,
+  `accent` while it has the keyboard, `background` fill, 12px `foreground`),
+  placeholder `Filter devices…`. Outside the list, so the list's click doesn't
+  pull the keyboard back. See Filter.
 - **The list**, scrolling with a scrollbar, 8px bottom padding:
   - **Section headers** like Files' folders: 26px, 14px side padding, 6px above,
     6px gaps: a 12px chevron in `dim` (Herdr's `mods/files/chevron-down.svg`,
     `chevron-right.svg` when folded), the title at 11px semibold `dim` (`iOS
     26.5`, `Android`), and the section's device count at 11px in `dim` at 60%
-    (`dim` + `99`). One section per
+    (`dim` + `99`). First `Running` (see Order and fold), when anything runs. Then one section per
     simulator runtime (`com.apple.CoreSimulator.SimRuntime.iOS-26-5` reads `iOS
     26.5`; `xrOS` reads `visionOS`), iOS first then watchOS, tvOS, visionOS,
-    newest version first; then Android.
-  - **Rows**, 26px, 6px outer side margin, 4px right padding, radius 6, 8px
+    newest version first; then Android. These hold only off devices; one left
+    with none goes, unless it has an empty or error line. The count is the rows the section lists.
+  - **Running rows**, outside the rail, 40px, the same margins, padding, slots and
+    gaps, the glyph centered on the row. Then a column: line 1 (24px) the name as
+    below and the icons at the right edge; line 2 (16px, 11px `dim`, 8px gaps,
+    clipped) under the name: the detail (a simulator's section title, `iOS 26.5`;
+    an iPhone's `iOS 26.1 · USB`; Android's `API 36`, `emulator`, `USB`,
+    `Wi-Fi`), then `· booting…` (or another phase), then the app tag and the
+    agent tag(s) (`runningDetail`). `selected` and `hover` fill the whole 40px.
+  - **Rows** (off devices), 26px, 6px outer side margin, 4px right padding, radius 6, 8px
     gaps, 12.5px type. Left to right: a 2px wide, 14px tall bar slot (drawn
     empty: reserved for a per-space color later), a 14px icon slot, the name
-    (truncated; `foreground` and medium weight when booted, `muted` otherwise),
-    then the app running
-    on it (see Apps) as a tag: 16px tall, 5px side padding, radius 4, `done` at
-    12% (`done` + `1f`) behind 10.5px medium `done` text, at most 96px wide
-    (truncated), then the agent tag (see Drivers, Claims) in the same shape; during a phase `booting…` or `stopping…` at 11px `dim`, then on
-    the right, just before the icons, the secondary at 11px `dim` (never truncated: an AVD's `API
-    36`, `emulator` for an unknown AVD, a phone's or iPhone's `USB` or `Wi-Fi`; a
-    simulator's version is its section's title, so none), and
-    the icons at the right edge, dim until the pointer is over them. The clicked row is `selected`; `hover`
-    under the pointer. Rows carry no tint of their own.
+    (truncated; `muted`: an off device), then a claim's agent tag (see Claims),
+    then on the right, just before the icons, the secondary at 11px `dim` (never
+    truncated: an AVD's `API 36`, `emulator` for an unknown AVD; a simulator's
+    version is its section's title, so none), and the icons at the right edge,
+    dim until the pointer is over them. The clicked row is `selected`; `hover`
+    under the pointer. Rows carry no tint of their own. The **app tag** (Running
+    rows only, see Apps): 16px tall, 5px side padding, radius 4, `done` at 12%
+    (`done` + `1f`) behind 10.5px medium `done` text, at most 96px wide
+    (truncated); the agent tag (see Drivers, Claims) has the same shape.
   - **Icons** (Lucide, in `icons/`): by the device's name, `tablet` (iPad,
     Tablet, Fold, Pad), `watch` (Watch, Wear), `tv` (TV, Television), `glasses`
     (Vision), else `smartphone`. Booted/online the icon is `foreground` with a
@@ -69,9 +81,10 @@ in `foreground`. Top to bottom:
   there are; `No devices` when none); `· refreshed 2m ago` (or `1h ago`) only
   once the last read is a minute old, as when the reads stall.
 - **Rail**: narrower than 160px, the header holds only Refresh (centered), each
-  section is a 1px `border` line with 6px above and below, rows show only the
-  icon, centered, with `<name> · booted` (or `off`, `booting…`, the adb state)
-  as a tooltip, and there are no hover icons, fold rows or footer.
+  section is a 1px `border` line with 6px above and below (Running's first), rows show only the
+  icon, centered, 26px, Running's too, with `<name> · booted` (or `off`, `booting…`, the adb state)
+  as a tooltip, and there are no hover icons, fold rows, filter field or footer.
+  Typed filter text is ignored there.
 
 **The menu** is a 250px popup at the pointer on `popover`, 5px padding, its
 height 30px per item, 9px per divider, plus 38px: a 24px line with the device's name at 11px
@@ -117,7 +130,8 @@ action button reads `Working…` while it runs.
   "connected"` show (paired devices that are away are dropped, like adb's);
   each is an `on` row `{ kind: "ios", id: udid, detail: "USB" | "Wi-Fi" }` (NBSP in
   names becomes a space) in the section titled `<platform> <osVersionNumber>`,
-  created and sorted in with the simulators'. Click does nothing; the menu has
+  created and sorted in with the simulators'; being on, it shows in Running, that
+  title on its second line. Click does nothing; the menu has
   Open URL… (`xcrun devicectl device process launch --device <udid>
   com.apple.mobilesafari --payload-url <url>`, Safari only), Run Maestro
   flow… and Copy UDID.
@@ -240,6 +254,12 @@ action button reads `Working…` while it runs.
   else prints the entries to merge);
   `×` sets `hintHidden` in the panel's `localStorage`. The list gives up 32px
   of height while it shows.
+- **Running**: every device, iOS and Android, whose state isn't `off` (booted,
+  offline, unauthorized, anything else) or that has a phase under way
+  (`phaseOf`, so a `devices.pending` boot of an off device too) leaves its
+  section for `Running` on top (`splitRunning`); omitted when empty. Its rows
+  never fold (the fold keeps every row not off) and it has no fold row; its
+  header still closes it (`folds.closed["Running"]`).
 - **Order and fold**: each section puts booted devices (and those with a
   phase under way) first, then sorts by the latest of simctl's
   `lastBootedAt` and the device's last use (shared `devices.used`: this
@@ -247,9 +267,16 @@ action button reads `Working…` while it runs.
   off, booting or offline, wherever it was started; a complete read drops the
   entries of its platform's devices that are gone); it shows every device that isn't
   off or has a phase under way, plus the three most recent off ones. When every section unfolded fits the list's
-  height (a header 32px with its margin, a row 26px, a closed section only its
-  header), all rows show and no fold row does. Show all / Show fewer and the header's fold are
+  height (a header 32px with its margin, a row 26px, a Running row 40px outside the rail, a closed section only its
+  header; the list is the panel less border 2, header 42, filter field 38 and footer 28 outside the rail,
+  hint 32 when shown, padding 8), all rows show and no fold row does. Show all / Show fewer and the header's fold are
   remembered per section title in `localStorage`.
+- **Filter**: typing in the field keeps the devices whose name holds the text
+  (trimmed, any case; `filterSections`), not persisted. While it isn't empty
+  every section shows all its matches (folds and closed headers ignored, no
+  fold row, the header doesn't fold), sections without one go, counts are the
+  matches, and the Running split still applies; none at all is one `line()`,
+  `No devices match`. A selected row filtered out counts as none.
 - **Phases**: Boot and Shut down put the device in the shared
   `devices.pending` (`booting` / `stopping`, with the time, and an AVD's name)
   before they run, so the row spins at once, from the panel or the menu (which
@@ -276,8 +303,12 @@ action button reads `Working…` while it runs.
   takes the first, up the last); Enter does the row click (not the rail's
   boot); space does what the row's power icon does: boots an off simulator or AVD,
   shuts down a booted one, or cancels its boot; nothing in another phase; `s` takes a screenshot where the row offers one; `m` opens
-  the menu; Escape clears the selection. Only whole keystrokes, so `cmd-m`
-  passes through; other keys propagate.
+  the menu; Escape empties a non-empty filter, else clears the selection. Only whole keystrokes, so `cmd-m`
+  passes through; other keys propagate. While the filter field has the keyboard
+  (its `focus` / `blur` events; `InputState` can't be asked) only up, down and
+  Escape are the list's: letters and space type, Enter is the field's submit,
+  which does the selected row's click (and so moves the keyboard to the root).
+  Clicking a row or the list gives the root the keyboard back.
 - The row's icons are always shown, dim until hovered, each with its label as a
   tooltip; **More** and **right-click** open the menu
   (up, down, enter, esc work).
@@ -383,8 +414,8 @@ action button reads `Working…` while it runs.
   `androidDevices`, `parseAvdIni`, `avdApi`, `phoneLink`), the row model `{
   kind: "sim" | "ios" | "avd" | "phone", id, name, state, detail, lastUsed?, serial?,
   avd? }`, `deviceKey` (an AVD by name, so its key survives its serial),
-  `sortRecent`, `updateUsed`, `foldRows`, `fitsUnfolded`, `settlePending`, `launchStep`,
-  `phaseOf`, `glyphOf`,
+  `sortRecent`, `updateUsed`, `foldRows`, `fitsUnfolded`, `filterSections`, `splitRunning`,
+  `runningDetail`, `settlePending`, `launchStep`, `phaseOf`, `glyphOf`,
   `actionsFor` (the menu), `dividerBefore` and `menuDividers` (its sections), `hoverActions` (at most three), `primaryAction` (the
   row click), `toggleAction` (space), `stepSelection` (up / down), `stepsFor` (the argv of every action), `footerText`,
   `toolCandidates`, `stillMissing`, `checkedLately`, `sameApps`, `dropClaimArgv`, `execFailure`, `rejectionLine`,
@@ -488,7 +519,10 @@ action button reads `Working…` while it runs.
   observed with a device attached, and Open URL on one was not run live. The
   driver tag: a pointer click, its tooltip, the `working` and `blocked` looks
   and the Maestro pane's tag were not seen live; only the idle MCP tag and its
-  `agent.focus` command were.
+  `agent.focus` command were. The Running section's 40px rows and the filter
+  field were not seen live, nor typing in it: that its `focus` / `blur` fire,
+  that up, down and Escape reach the root's `on_key_down` from it (the Maestro
+  picker's filter relies on the same) and that Enter arrives as its submit.
 
 ## Done when
 
@@ -503,7 +537,10 @@ action button reads `Working…` while it runs.
   log path and pgrep pattern, the launch step (wait, check, gone, done, kill,
   late), recency order (booted and pending first; the two booted simulators first in the captured list)
   and recents from devices that came on, with gone ones dropped, the fold
-  (running and pending plus the three most recent off ones; unfolded when all fit), phases settling (an AVD only after boot_completed, three minutes at
+  (running and pending plus the three most recent off ones; unfolded when all fit, Running rows
+  counted at 40px), the Running split (booted, offline, unauthorized, a pending boot of an off
+  device; all off; a section emptied by it, kept only with its empty line) and its second line,
+  the filter (any case, trimmed, sections without a match dropped), phases settling (an AVD only after boot_completed, three minutes at
   most; a boot cancelled into stopping), glyphs, hover icons (Shut down while booting), the row click, the keys (up / down, space), the footer, the menu per row with its key hints, and
   the app lists (iOS launchctl, Android dumpsys with its fallback and hidden
   packages) and segment, the menu's app items, the Maestro flow rows (sorted,
@@ -518,9 +555,10 @@ action button reads `Working…` while it runs.
   that isn't an absolute `*.avd`).
 - `herdr-app check ~/.config/herdr-app/mods/devices` passes and `herdr-app
   status` shows `"errors": []` with the panel open.
-- The panel shows `iOS <version>` and `Android` headers with counts, booted rows
-  bright with a dot on the icon, off rows dim, API levels beside Android names,
-  and the footer.
+- The panel shows the filter field, a `Running` header over two-line booted rows
+  (bright with a dot on the icon, `iOS <version>` or the API level under the name), then
+  `iOS <version>` and `Android` headers with counts over dim off rows, API levels beside
+  off AVD names, and the footer.
 - A simulator held by an idle agent's Maestro MCP shows that agent's program
   (`claude`, `codex`) as a muted tag after the app tag, and `herdr-app do agent.focus --terminal
   <its terminal>` (what the tag's click runs) focuses that agent.

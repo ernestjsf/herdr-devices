@@ -6,7 +6,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
-import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
+import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, filterSections, splitRunning, runningDetail, footerText, avdListChanged, driversFrom, staleClaims, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, killEmulator, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
@@ -81,6 +81,18 @@ class Panel {
     this.selected = null;
     this.visible = []; // the shown rows, top to bottom, for the keys
     this.handle = cx.focus_handle();
+    // The filter field: view state only. InputState can't say whether it holds the keyboard, so
+    // its focus and blur keep `typing`, which keeps the row keys out of what is typed.
+    this.filter = InputState.new({ placeholder: "Filter devices…" });
+    this.typing = false;
+    this.filter.on("change", (_e, cx) => cx.notify());
+    this.filter.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
+    this.filter.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
+    // Enter in the field arrives as its submit (key() leaves it alone there): the selected row's click.
+    this.filter.on("submit", (_e, cx) => {
+      const d = this.visible.find((r) => deviceKey(r) === this.selected);
+      if (d) this.click(d, phaseOf(d, shared("devices.pending") ?? {}), this.selected, false, cx);
+    });
     this.width = 0;
     this.height = 0;
     this.drivers = []; // Maestro MCP's device servers, from the last iOS read
@@ -217,6 +229,7 @@ class Panel {
   click(d, phase, key, rail, cx) {
     this.selected = key;
     this.handle.focus();
+    this.typing = false; // the row keys are back even if the field's blur never came
     const action = primaryAction(d, phase, { rail });
     if (action === "focus") cx.spawn(async () => focus(d));
     else if (action === "boot") this.act("boot", d, cx);
@@ -224,11 +237,14 @@ class Panel {
   }
 
   // The list's keys, on the selected row (a stale one counts as none). Whole
-  // keystrokes, so cmd-m and the like pass through.
+  // keystrokes, so cmd-m and the like pass through. While the filter field has the keyboard only
+  // up, down and Escape are the list's: a stopped key would never type, and Enter is its submit.
   key(e, cx) {
     const k = e.keystroke, d = this.visible.find((r) => deviceKey(r) === this.selected);
+    if (this.typing && k !== "up" && k !== "down" && k !== "escape") return;
     const phase = d && phaseOf(d, shared("devices.pending") ?? {}), toggle = d && toggleAction(d, phase);
     if (k === "down" || k === "up") this.selected = stepSelection(this.visible.map(deviceKey), this.selected, k === "down" ? 1 : -1);
+    else if (k === "escape" && this.filter.value()) this.filter.set_value("");
     else if (k === "escape" && this.selected) this.selected = null;
     else if (!d) return;
     else if (k === "enter") this.click(d, phase, this.selected, false, cx);
@@ -255,13 +271,15 @@ class Panel {
       .when(g === "on", (el) => el.child(div().absolute().right(-3).bottom(-2).size(7).rounded(4).bg(t.done).border(1.5).border_color(t.background)));
   }
 
-  row(d, c) {
+  // `two`: a Running row outside the rail, 40 px: the name and the icons, then under the name its
+  // detail and phase and the tags. Else 26 px, all on one line. The glyph is centered on the row.
+  row(d, c, two) {
     const { t, rail, pending } = c, key = deviceKey(d), phase = phaseOf(d, pending);
     const on = d.state === "on" && !phase, claim = this.claimOf(d);
     const drivers = deviceDrivers(d, this.drivers, c.terminals, c.agents);
     const tags = deviceTags(claim, drivers, c.agents, c.terminals);
     const state = phase ? `${phase}…` : d.state === "on" ? "booted" : d.state;
-    const row = h_flex().id(`row-${key}`).h(26).flex_none().mx(6).pr(4).gap(8).items_center().rounded(6).cursor_pointer().text_size(12.5)
+    const row = h_flex().id(`row-${key}`).h(two ? 40 : 26).flex_none().mx(6).pr(4).gap(8).items_center().rounded(6).cursor_pointer().text_size(12.5)
       .when(rail, (el) => el.justify_center().tooltip(`${d.name} · ${state}`))
       .when(this.selected === key, (el) => el.bg(t.selected))
       .hover((s) => s.bg(t.hover))
@@ -271,18 +289,25 @@ class Panel {
       .child(div().w(2).h(14).flex_none().rounded(1))
       .child(div().size(14).flex_none().child(this.glyph(glyphOf(d, phase), d, t)));
     if (rail) return row;
+    const name = div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name);
+    const pills = [...(d.apps?.length ? [this.appTag(d, key, t)] : []), ...tags.map((g, i) => this.tag(g, i && tags.length > 1 ? `driver-${key}` : `tag-${key}`, t))];
+    // Icons sit dim at the right edge and brighten under the pointer: gpui-kit has no
+    // hover groups, and redrawing the panel on every row hover made it lag.
+    const icons = h_flex().flex_none().opacity(0.4).hover((s) => s.opacity(1)).children(hoverActions(d, phase).map((a) => this.hoverIcon(a, d, key, t)));
+    // Line 1 is the icons' 24 px, line 2 the tags' 16: the 40 px row.
+    if (two) return row.child(v_flex().flex_1().min_w(0)
+      .child(h_flex().h(24).gap(8).items_center().child(name).child(div().flex_1()).child(icons))
+      .child(h_flex().h(16).gap(8).items_center().overflow_hidden().text_size(11).text_color(t.dim)
+        .child(div().min_w(0).truncate().child(runningDetail(d, phase))).children(pills)));
     // Left to right: name, app tag, agent tag(s), phase, then right-aligned the detail and the icons.
     return row
-      .child(div().min_w(0).truncate().text_color(on ? t.foreground : t.muted).when(on, (n) => n.font_medium()).child(d.name))
-      .when(Boolean(d.apps?.length), (n) => n.child(this.appTag(d, key, t)))
-      .children(tags.map((g, i) => this.tag(g, i && tags.length > 1 ? `driver-${key}` : `tag-${key}`, t)))
+      .child(name)
+      .children(pills)
       .when(Boolean(phase), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(`${phase}…`)))
       .child(div().flex_1())
       // A simulator's version is its section's title already.
       .when(d.kind !== "sim" && Boolean(d.detail), (n) => n.child(div().flex_none().text_size(11).text_color(t.dim).child(d.detail)))
-      // Icons sit dim at the right edge and brighten under the pointer: gpui-kit has no
-      // hover groups, and redrawing the panel on every row hover made it lag.
-      .child(h_flex().flex_none().opacity(0.4).hover((s) => s.opacity(1)).children(hoverActions(d, phase).map((a) => this.hoverIcon(a, d, key, t))));
+      .child(icons);
   }
 
   // The running app's tag: the last segment of the app in front; the tooltip lists them all.
@@ -330,21 +355,23 @@ class Panel {
 
   // A section: header (chevron, title, count), its rows (booted, then recent first,
   // folded to the recent ones unless all fit, `c.fits`), the fold row; `empty`: { text, link } instead of rows.
-  section(title, devices, empty, c) {
-    const { t, rail, pending, used } = c;
-    const closed = this.folds.closed[title] === true, all = c.fits || this.folds.all[title] === true;
+  // `running`: Running, never folded (foldRows keeps every row not off) and two-line outside the rail.
+  // While filtering (`c.query`) every match shows and the header doesn't fold.
+  section({ title, devices, empty, running }, c) {
+    const { t, rail, pending, used } = c, two = running === true && !rail;
+    const closed = !c.query && this.folds.closed[title] === true, all = c.fits || this.folds.all[title] === true;
     const sorted = sortRecent(devices, used, pending), { shown, hidden } = foldRows(sorted, { all, pending });
     const canFold = !c.fits && foldRows(sorted, { pending }).hidden > 0;
     if (rail || !closed) c.shown.push(...shown);
-    if (rail) return [div().mx(8).my(6).h(1).flex_none().bg(t.border), ...shown.map((d) => this.row(d, c))];
-    const out = [h_flex().id(`sec-${title}`).h(26).flex_none().px(14).mt(6).gap(6).items_center().cursor_pointer()
-      .on_click((_e, cx) => { this.fold("closed", title); cx.notify(); })
+    if (rail) return [div().mx(8).my(6).h(1).flex_none().bg(t.border), ...shown.map((d) => this.row(d, c, false))];
+    const out = [h_flex().id(`sec-${title}`).h(26).flex_none().px(14).mt(6).gap(6).items_center()
+      .when(!c.query, (el) => el.cursor_pointer().on_click((_e, cx) => { this.fold("closed", title); cx.notify(); }))
       .child(svg(`mods/files/chevron-${closed ? "right" : "down"}.svg`).size(12).flex_none().text_color(t.dim))
       .child(div().text_size(11).font_semibold().text_color(t.dim).child(title))
       .child(div().text_size(11).text_color(t.dim + "99").child(String(devices.length)))];
     if (closed) return out;
     if (empty) out.push(this.line(title, empty.text, empty.link, t));
-    out.push(...shown.map((d) => this.row(d, c)));
+    out.push(...shown.map((d) => this.row(d, c, two)));
     if (canFold) out.push(h_flex().id(`fold-${title}`).h(24).flex_none().mx(6).pl(32).items_center().rounded(6).cursor_pointer()
       .text_size(11.5).text_color(t.muted).hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => { this.fold("all", title); cx.notify(); })
@@ -359,28 +386,34 @@ class Panel {
     const asked = shared("devices.request");
     if (asked) { setShared("devices.request", null); if (Date.now() - asked.at < 10000) this.act(asked.action, asked.device, cx); }
     const t = theme(), rail = this.width > 0 && this.width < 160;
-    const body = [], secs = []; // secs: each section's (title, devices, empty), drawn once the fit is known
+    const body = [], all = []; // all: each section's { title, devices, empty }, drawn once the fit is known
     if (!this.ios && !this.android) body.push(this.line("loading", "Loading devices…", null, t));
     if (this.ios) {
       const { sections, error } = this.ios;
-      if (error) secs.push(["iOS", [], { text: error, link: error === "xcrun not found" ? LINKS.xcode : { label: "Retry", go: (cx) => { forgetTools(); this.reload(cx, "ios", true); } } }]);
-      else if (!sections.length) secs.push(["iOS", [], { text: "No simulators", link: LINKS.openXcode }]);
-      for (const s of sections) secs.push([s.title, s.devices, null]);
+      if (error) all.push({ title: "iOS", devices: [], empty: { text: error, link: error === "xcrun not found" ? LINKS.xcode : { label: "Retry", go: (cx) => { forgetTools(); this.reload(cx, "ios", true); } } } });
+      else if (!sections.length) all.push({ title: "iOS", devices: [], empty: { text: "No simulators", link: LINKS.openXcode } });
+      for (const s of sections) all.push({ title: s.title, devices: s.devices, empty: null });
     }
     if (this.android) {
       const { devices, notes } = this.android;
       const missing = notes.some((n) => n.endsWith("not found"));
       const empty = notes.length ? { text: notes.join(" · "), link: missing ? LINKS.sdk : { label: "Retry", go: (cx) => { forgetTools(); this.reload(cx, "android", true); } } }
         : devices.length ? null : { text: "No emulators or devices", link: LINKS.studio };
-      secs.push(["Android", devices, empty]);
+      all.push({ title: "Android", devices, empty });
     }
+    // The filter's matches (the rail has no field, so none there), the running ones in a section on top.
+    const pending = shared("devices.pending") ?? {}, query = rail ? "" : this.filter.value().trim();
+    const secs = splitRunning(filterSections(all, query), pending);
+    if (query && !secs.length && all.length) body.push(this.line("nomatch", "No devices match", null, t));
     // Maestro is there but no agent can claim: one hint above the footer, unless hidden for good.
     const hint = !rail && maestroFound() && !hookInstalled() && !this.hintHidden;
-    // The list: the panel less its border (2), header (42), footer (28) and hint (32), neither in the rail, and bottom padding (8).
-    const listHeight = this.height - 2 - 42 - (rail ? 0 : 28) - (hint ? 32 : 0) - 8;
-    const fits = fitsUnfolded(secs.map(([title, devices]) => ({ count: devices.length, closed: !rail && this.folds.closed[title] === true })), listHeight);
-    const c = { t, rail, fits, pending: shared("devices.pending") ?? {}, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents(), shown: [] };
-    for (const [title, devices, empty] of secs) body.push(...this.section(title, devices, empty, c));
+    // The list: the panel less its border (2), header (42), filter field (38: 8 above, 28, 2 below),
+    // footer (28) and hint (32), none in the rail, and bottom padding (8).
+    const listHeight = this.height - 2 - 42 - (rail ? 0 : 38 + 28) - (hint ? 32 : 0) - 8;
+    // While filtering every match shows, as if all fit.
+    const fits = Boolean(query) || fitsUnfolded(secs.map((s) => ({ count: s.devices.length, closed: !rail && this.folds.closed[s.title] === true, row: s.running && !rail ? 40 : 26 })), listHeight);
+    const c = { t, rail, fits, query, pending, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents(), shown: [] };
+    for (const s of secs) body.push(...this.section(s, c));
     this.visible = c.shown;
     const working = this.spinning > 0 || this.busy > 0;
     return v_flex().id("root").track_focus(this.handle).size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
@@ -392,6 +425,9 @@ class Panel {
         .child(div().id("refresh").size(24).flex_none().flex().items_center().justify_center().rounded(6)
           .when(!working, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { forgetTools(); forgetAvds(); this.reloadAll(cx, true); }))
           .child(working ? svg(SPINNER).size(14).text_color(t.muted).spin(900) : svg(icon("refresh")).size(14).text_color(t.muted))))
+      // Outside the list: the list's click takes the keyboard back to the root.
+      .when(!rail, (el) => el.child(v_flex().flex_none().px(8).pt(8).pb(2)
+        .child(Input.new(this.filter).h(28).px(8).rounded(7).border_1().border_color(this.typing ? t.accent : t.border).bg(t.background).text_size(12).text_color(t.foreground))))
       .child(v_flex().id("devices-list").flex_1().min_h(0).pb(8).overflow_y_scrollbar().on_click(() => this.handle.focus()).children(body))
       .when(hint, (el) => el.child(this.line("hook", "Agents don't claim devices yet", [{ label: "Claude Code", go: (cx) => copy(INSTALL.claude, cx) }, { label: "Codex", go: (cx) => copy(INSTALL.codex, cx) }], t,
         (cx) => { this.hintHidden = true; store.set("hintHidden", true); cx.notify(); })))

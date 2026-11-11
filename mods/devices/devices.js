@@ -600,10 +600,18 @@ export function foldRows(sorted, { all = false, pending = {}, keep = 3 } = {}) {
   return { shown, hidden: sorted.length - shown.length };
 }
 
-// Whether every section, unfolded, fits the list's height (`sections`: { count, closed }):
-// a header is 32 px with its margin, a row 26; a closed section is its header.
+// Whether every section, unfolded, fits the list's height (`sections`: { count, closed, row? }):
+// a header is 32 px with its margin, a row `row` (26 unless stated; Running's are 40); a closed section is its header.
 export const fitsUnfolded = (sections, listHeight) =>
-  listHeight > 0 && sections.reduce((h, s) => h + 32 + (s.closed ? 0 : 26 * s.count), 0) <= listHeight;
+  listHeight > 0 && sections.reduce((h, s) => h + 32 + (s.closed ? 0 : (s.row ?? 26) * s.count), 0) <= listHeight;
+
+// The filter: each section's devices whose name holds `query` (any case, trimmed); sections
+// with none go. An empty query keeps everything.
+export function filterSections(sections, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return sections;
+  return sections.map((s) => ({ ...s, devices: s.devices.filter((d) => d.name.toLowerCase().includes(q)) })).filter((s) => s.devices.length);
+}
 
 const PENDING_MS = 180000;
 const LAUNCH_GRACE_MS = 10000;
@@ -640,6 +648,22 @@ export function launchStep(p, now, booted, running) {
 // "booting" | "stopping" | null: a press under way, else simctl's own phases.
 export const phaseOf = (d, pending = {}) =>
   pending[deviceKey(d)]?.phase ?? (d.state === "booting" ? "booting" : d.state === "shutting down" ? "stopping" : null);
+
+// `sections` ([{ title, devices, empty }]) with a Running section first: every device not plainly
+// off (booted, offline, unauthorized, ...) or with a phase under way, each copied with its
+// section's `section` title. The others keep their off devices; one left with none goes unless it
+// has an `empty` line. No Running section when nothing runs.
+export function splitRunning(sections, pending = {}) {
+  const live = (d) => d.state !== "off" || Boolean(phaseOf(d, pending));
+  const running = sections.flatMap((s) => s.devices.filter(live).map((d) => ({ ...d, section: s.title })));
+  const rest = sections.map((s) => ({ ...s, devices: s.devices.filter((d) => !live(d)) })).filter((s) => s.devices.length || s.empty);
+  return running.length ? [{ title: "Running", devices: running, empty: null, running: true }, ...rest] : rest;
+}
+
+// A Running row's second line: a simulator's OS and version (its section's title), an iPhone's
+// and its link, else the detail (`API 36`, `USB`); then the phase.
+export const runningDetail = (d, phase) =>
+  [d.kind === "sim" ? d.section : d.kind === "ios" ? `${d.section} · ${d.detail}` : d.detail, phase && `${phase}…`].filter(Boolean).join(" · ");
 
 // The status glyph: "spin" (a phase), "on", "off", or "warn" (offline, unauthorized, ...).
 export const glyphOf = (d, phase) => (phase ? "spin" : d.state === "on" || d.state === "off" ? d.state : "warn");

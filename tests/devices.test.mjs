@@ -464,6 +464,48 @@ test("unfolded when every section fits the list's height", () => {
   // Before the first size: fold as usual.
   assert.equal(D.fitsUnfolded([], 0), false);
   assert.equal(D.fitsUnfolded(secs, -80), false);
+  // A section states its row height (Running's two-line rows): 32 + 2 * 40 + 32 + 2 * 26 = 196
+  const running = [{ count: 2, closed: false, row: 40 }, { count: 2, closed: false }];
+  assert.equal(D.fitsUnfolded(running, 196), true);
+  assert.equal(D.fitsUnfolded(running, 195), false);
+  assert.equal(D.fitsUnfolded([{ count: 2, closed: true, row: 40 }], 32), true);
+});
+
+test("Running: every device not plainly off or with a phase, first; the sections keep their off ones", () => {
+  const phone = (name, state) => ({ kind: "phone", id: name, serial: name, name, state, detail: "USB" });
+  const secs = [
+    { title: "iOS 26.5", devices: [sim("on", "on"), sim("off", "off"), sim("boot", "off")], empty: null },
+    { title: "Android", devices: [phone("gone", "offline"), phone("auth", "unauthorized")], empty: null },
+  ];
+  const split = D.splitRunning(secs, { "sim:boot": { phase: "booting", at: 0 } });
+  assert.deepEqual(split.map((s) => [s.title, s.devices.map((d) => d.name)]), [["Running", ["on", "boot", "gone", "auth"]], ["iOS 26.5", ["off"]]]);
+  assert.equal(split[0].running, true);
+  assert.equal(split[0].devices[0].section, "iOS 26.5");
+  // All off: no Running, the sections as they were.
+  const off = [{ title: "iOS 26.5", devices: [sim("a", "off"), sim("b", "off")], empty: null }];
+  assert.deepEqual(D.splitRunning(off).map((s) => [s.title, s.devices.length]), [["iOS 26.5", 2]]);
+  // A section emptied by the split goes, unless it has an empty line (Android's notes).
+  const notes = { text: "adb not found" };
+  assert.deepEqual(D.splitRunning([{ title: "Android", devices: [phone("p", "on")], empty: notes }]).map((s) => [s.title, s.devices.length, s.empty]), [["Running", 1, null], ["Android", 0, notes]]);
+  assert.deepEqual(D.splitRunning([{ title: "iOS", devices: [], empty: notes }]).map((s) => s.title), ["iOS"]);
+});
+
+test("Running row's second line: the OS for a simulator, OS and link for an iPhone, else the detail; then the phase", () => {
+  assert.equal(D.runningDetail({ kind: "sim", detail: "26.5", section: "iOS 26.5" }, null), "iOS 26.5");
+  assert.equal(D.runningDetail({ kind: "ios", detail: "USB", section: "iOS 26.1" }, null), "iOS 26.1 · USB");
+  assert.equal(D.runningDetail({ kind: "avd", detail: "API 36", section: "Android" }, "booting"), "API 36 · booting…");
+});
+
+test("filter: names holding the text, any case; sections without a match go", () => {
+  const secs = [
+    { title: "iOS 26.5", devices: [sim("iPhone 17 Pro", "on"), sim("iPad Air", "off")], empty: null },
+    { title: "Android", devices: [{ kind: "avd", id: "Pixel_9", avd: "Pixel_9", name: "Pixel_9", state: "off" }], empty: null },
+  ];
+  assert.equal(D.filterSections(secs, ""), secs);
+  assert.equal(D.filterSections(secs, "  "), secs);
+  assert.deepEqual(D.filterSections(secs, " IPHONE").map((s) => [s.title, s.devices.map((d) => d.name)]), [["iOS 26.5", ["iPhone 17 Pro"]]]);
+  assert.deepEqual(D.filterSections(secs, "p").map((s) => s.devices.length), [2, 1]);
+  assert.deepEqual(D.filterSections(secs, "watch"), []);
 });
 
 test("phases: booting until booted (an AVD until boot_completed), stopping until off, three minutes at most", () => {

@@ -11,7 +11,7 @@ right-click menu and it runs on that device in a pane below.
 
 ## What you get
 
-- iOS simulators grouped by runtime, with connected iPhones, iPads, Watches, TVs and Vision Pros under their OS version. Android AVDs and `adb` devices in one section.
+- Running devices of both platforms, connected iPhones, iPads, Watches, TVs and Vision Pros included, in a Running section on top. The rest: iOS simulators grouped by runtime, Android AVDs in one section.
 - Running devices first, then the most recent. When space runs short, **Show all** reveals the older off devices.
 - Each row shows the device type and its state: booted, off, booting or offline.
 - A booted device shows its running app as a tag (`com.example.budget` shows `budget`).
