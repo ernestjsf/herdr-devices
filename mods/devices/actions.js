@@ -246,7 +246,13 @@ let toldAccess = false, toldXdotool = false; // each hint shows once per session
 // on the emulator's window title (X11 only); Windows: AppActivate on that title.
 export async function focus(d) {
   const platform = herdrWindow().platform;
-  const pid = platform === "macos" && d.kind === "avd" && d.avd ? (await emulatorPids(d.avd)).pop() : null;
+  const pids = d.kind === "avd" && d.avd ? await emulatorPids(d.avd) : [];
+  // Started with -no-window: there is no window, and a running emulator can't be given one.
+  if (pids.length) {
+    const headless = ((await exec("pgrep", ["-f", "--", "-no-window( |$)"]).catch(() => null))?.stdout ?? "").split(/\s+/);
+    if (pids.some((p) => headless.includes(p))) { notify({ level: "info", title: `${d.name} runs without a window`, body: "It was started with -no-window. Shut it down and boot it again to get one.", timeout: 4000 }); return; }
+  }
+  const pid = platform === "macos" ? pids.pop() : null;
   const c = D.focusCommand(platform, d, pid);
   if (!c) return;
   const r = await exec(c.cmd, c.args).catch((e) => ({ code: 1, stderr: String(e?.message ?? e), missing: D.execFailure(e) === "missing" }));
