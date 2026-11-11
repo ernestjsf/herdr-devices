@@ -90,6 +90,7 @@ Clicking a row only selects it. Connected iPhones offer Open URL, Run Maestro fl
 - Show screen edits your layout file while a screen is open, and puts it back when you leave.
 - Tested on macOS with Herdr 0.1.15. Linux should work for Android and is untested. [Limits](docs/reference.md#limits).
 - To rebuild the mod yourself, [RECIPE.md](RECIPE.md) is the full spec.
+- What changed lately: [Releases](https://github.com/ernestjsf/herdr-devices/releases).
 
 ## Credits
 
