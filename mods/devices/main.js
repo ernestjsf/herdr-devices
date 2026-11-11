@@ -5,12 +5,13 @@
 // (the right-click popup), "url", "maestro", "erase" and "claimed" (dialogs). Mod commands carry no
 // arguments, so the overlays run their action themselves and the panel
 // reloads on the shared "devices.changed".
-import { View, div, image, svg } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, theme, shared, setShared, openOverlay, closeOverlay, notify, home, watchFolder, exec, pickFolder, terminals, agents, run } from "herdr";
 import { pollDue, actionsFor, parseVars, appSegment, validUrl, deviceKey, sortRecent, foldRows, settlePending, launchStep, updateUsed, phaseOf, glyphOf, deviceIcon, hoverActions, primaryAction, toggleAction, stepSelection, fitsUnfolded, filterSections, splitRunning, runningDetail, footerText, avdListChanged, driversFrom, staleClaims, claimHolders, deviceDrivers, claimId, deviceTags, dividerBefore, menuDividers } from "./devices.js";
 import { loadIos, loadAndroid, bootCompleted, emulatorRunning, emulatorLastLine, endWipe, killEmulator, focus, perform, avdHome, forgetAvds, forgetTools, maestroFound, hookInstalled, forgetHook, maestroCwd, maestroStart, runMaestro, mark, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
 import { showScreen, ScreenBar } from "./screen-view.js";
+import { agentTag } from "./tag.js";
 
 const icon = (name) => `mods/devices/icons/${name}.svg`;
 const SPINNER = "mods/workspace-chrome/spinner.svg";
@@ -381,28 +382,8 @@ class Panel {
       .child(svg(icon(a.icon)).size(13).text_color(t.muted));
   }
 
-  // The agent pill, shaped like the app tag: an icon for the relationship (lock claimed, link
-  // driven, triangle mismatch), the tone for liveness (`working` driving, `blocked` its agent is,
-  // else muted), the holder's program icon, then the label (truncated), the idle text in `dim` and,
-  // on a claim, a × that releases it; a claim pill gives way (its label truncates) before the row's detail does. With a click (the holder's or the first driver's terminal) it
-  // brightens under the pointer, unlike the app tag.
-  tag({ icon: ic, label, tone, tip, focus, terminal, program: p, idle: since, release }, id, t, d, max) {
-    const idle = tone === "idle", color = idle ? t.muted : t[tone];
-    return h_flex().id(id).when(!release, (el) => el.flex_none()).min_w(0).max_w(max).truncate().items_center().gap(3).px(5).h(16).rounded(4)
-      .bg(idle ? t.raised : t[tone] + "1f").text_size(10.5).font_medium().text_color(color)
-      .when(Boolean(focus), (el) => el
-        .hover((s) => s.bg(idle ? t.hover : t[tone] + "40").text_color(idle ? t.foreground : color))
-        .on_click((_e, cx) => { cx.stop_propagation(); run(focus, { terminal }); }))
-      .tooltip(tip)
-      .child(svg(icon(ic)).size(10).flex_none())
-      .when(Boolean(p), (el) => el.child(p.tint ? svg(p.icon).size(10).flex_none() : image(p.icon).w(10).h(10).flex_none()))
-      .when(Boolean(label), (el) => el.child(div().min_w(0).truncate().child(label)))
-      .when(Boolean(since), (el) => el.child(div().flex_none().text_color(t.dim).child(since)))
-      // Its own hit area: the release, never the pill's focus or the row's click.
-      .when(Boolean(release), (el) => el.child(div().id(`${id}-release`).flex_none().px(2).text_size(11).text_color(t.dim).cursor_pointer()
-        .hover((s) => s.text_color(t.foreground)).tooltip("Release claim")
-        .on_click((_e, cx) => { cx.stop_propagation(); this.act("release", d, cx); }).child("×")));
-  }
+  // A row's agent pill (tag.js); its × releases the claim.
+  tag(g, id, t, d, max) { return agentTag(g, id, t, max, (cx) => this.act("release", d, cx)); }
 
   // A centered dim line with accent links (one, or an array).
   line(id, text, link, t, hide) {

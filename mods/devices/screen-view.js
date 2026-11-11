@@ -2,15 +2,18 @@
 // terminal of its own and edits the layout file: the panel's block becomes a column, this mod
 // again as a bar (Back, the name, the device's buttons) over that terminal. Back, or the viewer
 // ending, turns the column back into the block. The terminal draws the picture and takes the
-// mouse and the keys itself; the bar's buttons reach it over a local port.
+// mouse and the keys itself; the bar's buttons reach it over a local port. Under the name the bar
+// shows who holds or drives the device, as its row does.
 import { div, svg } from "gpui-kit";
-import { h_flex } from "gpui-base";
+import { h_flex, v_flex } from "gpui-base";
 import * as herdr from "herdr";
 import net from "net";
 import * as S from "./screen.js";
-import { adbPath } from "./actions.js";
+import { adbPath, perform, readPs, claimsDir, readClaims, dropClaims } from "./actions.js";
+import { claimId, staleClaims, claimHolders, driversFrom, deviceDrivers, deviceTags } from "./devices.js";
+import { agentTag } from "./tag.js";
 
-const { hc, home, props, shared, notify, run, readTextFile, writeTextFile, theme } = herdr;
+const { hc, home, props, shared, notify, run, readTextFile, writeTextFile, theme, watchFolder, terminals, agents } = herdr;
 // Newer than the rest of what the mod uses: fall back rather than fail to load.
 const appHome = () => herdr.appHome?.() ?? `${home()}/.config/herdr-app`;
 const MOD = "devices";
@@ -55,7 +58,7 @@ export async function showScreen(d) {
   let terminal = null;
   try { terminal = JSON.parse(started.stdout).address; } catch {}
   if (!terminal) return failed((started.stderr || started.stdout).trim().split("\n").pop() || "the viewer didn't start");
-  const screen = { device: { kind: d.kind, id: d.id, serial: d.serial, name: d.name }, terminal, port };
+  const screen = { device: { kind: d.kind, id: d.id, serial: d.serial, avd: d.avd, name: d.name }, terminal, port };
   if (place === "pane") return void run("terminal.keep", { terminal, place: "right" });
   if (!(await editLayout((tree) => S.wrapScreen(tree, MOD, terminal, screen)))) { await hc(["kill", terminal]).catch(() => null); failed("the layout file couldn't be changed"); }
 }
@@ -66,7 +69,11 @@ const restore = (terminal) => editLayout((tree) => S.unwrapScreen(tree, MOD, ter
 export class ScreenBar {
   init(cx) {
     const { device, terminal, port } = props().screen;
-    Object.assign(this, { device, terminal, port, leaving: false });
+    Object.assign(this, { device, terminal, port, leaving: false, tags: [], cpu: {}, reading: false });
+    // Who holds or drives it: read now, when the claims folder changes, and every 5 s (the
+    // drivers, the holder's liveness and the idle text have no event).
+    cx.spawn(async (cx) => { try { for (;;) { await this.who(cx); await watchFolder(claimsDir()); } } catch {} });
+    cx.timer.every(5000, (cx) => cx.spawn((cx) => this.who(cx)));
     // The viewer ended by itself (Ctrl-C, the device went off): the panel comes back.
     cx.spawn(async (cx) => {
       for (;;) {
@@ -78,6 +85,23 @@ export class ScreenBar {
         if (!live) { this.leaving = true; await restore(this.terminal); return; }
       }
     });
+  }
+
+  // The device's tags (deviceTags), read the way the panel reads them. The panel isn't there while
+  // a screen is shown, so claims whose holder is gone are dropped here too.
+  async who(cx) {
+    if (this.reading) return;
+    this.reading = true;
+    try {
+      let claims = await readClaims();
+      const rows = await readPs(), stale = staleClaims(claims, rows);
+      if (stale.length) { await dropClaims(stale, claims); claims = await readClaims(); }
+      const live = terminals(), all = agents(), claim = claims[claimId(this.device)];
+      let drivers;
+      ({ drivers, cpu: this.cpu } = driversFrom(rows, live, this.cpu));
+      this.tags = deviceTags(claim, deviceDrivers(this.device, drivers, live, all), all, live, { holder: claimHolders(claims, rows, live)[claim?.pid] ?? null, now: Date.now() });
+      cx.notify();
+    } catch {} finally { this.reading = false; }
   }
 
   // One line to the viewer's port: a tool's id, or quit.
@@ -104,7 +128,10 @@ export class ScreenBar {
     const t = theme();
     return h_flex().id("screen-bar").size_full().px(8).gap(2).items_center().bg(t.background).border_b(1).border_color(t.border).text_color(t.foreground).text_size(13)
       .child(this.button("screen-back", "chevron-left", "Back to the devices", t, () => this.back()))
-      .child(div().flex_1().min_w(0).ml(4).truncate().font_semibold().child(this.device.name))
+      .child(v_flex().flex_1().min_w(0).ml(4).mr(4)
+        .child(div().truncate().font_semibold().child(this.device.name))
+        .when(this.tags.length > 0, (el) => el.child(h_flex().h(16).gap(4).overflow_hidden()
+          .children(this.tags.map((g, i) => agentTag(g, `who-${i}`, t, 200, (cx) => cx.spawn(async (cx) => { await perform("release", this.device); await this.who(cx); })))))))
       .children(S.toolsFor(this.device).map((b) => this.button(`tool-${b.id}`, b.icon, b.tip, t, () => this.send(b.id))));
   }
 }

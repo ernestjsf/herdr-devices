@@ -448,6 +448,11 @@ action button reads `Working…` while it runs.
     block (`<id>-screen`), and written back with `writeTextFile`'s expected
     text, tried twice. A copy that is no layout block (a pane) gets the viewer
     as a pane instead: `terminal.keep {terminal, place: "right"}`.
+  - **Who drives it**: under the name the bar shows the device's agent
+    pill(s), the same as its row (`deviceTags`, drawn by `tag.js`): click to
+    focus the holder, × to release. The panel isn't running then, so the bar
+    reads claims and `ps` itself, when the claims folder changes and every 5 s,
+    and drops claims whose holder is gone.
   - **Back**: the bar writes `quit` to the viewer's port (or ends its terminal
     when the port doesn't answer), then turns the column back into the block.
     The bar also asks `hc get <terminal>` every 2 s and does the same when the
@@ -565,6 +570,7 @@ action button reads `Working…` while it runs.
   the mod's part while its props carry `screen`. Adds `net`, and herdr's `hc`,
   `readTextFile`, `writeTextFile` and `appHome` (read through the module
   object so an older Herdr still loads the mod).
+- `tag.js`: `agentTag`, the agent pill, for a row and for the bar.
 - `screen-term.mjs`: the viewer, run by node. `frame-scale.swift`: its JPEG
   scaler. `android-stream.mjs`: the emulator's frame helper, run by node.
 

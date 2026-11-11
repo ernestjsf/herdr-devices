@@ -37,7 +37,7 @@ herdr-app do pane.split --direction right --mod devices
 Press the monitor icon on a running device, or `V`. The screen takes the panel's place under a bar with Home, Lock, volume and Rotate. The arrow goes back.
 
 - Click to tap, drag to swipe, scroll with the wheel, type once you've clicked the screen.
-- Your agent can drive the device at the same time. The view only watches and sends your own touches.
+- Your agent can drive the device at the same time. The bar names the session holding it. The view only watches and sends your own touches.
 - Simulators stream through [serve-sim](https://github.com/EvanBacon/serve-sim), which `npx` downloads on first use. Android emulators stream their own frames. Phones show about two screenshots a second.
 
 The picture is drawn in a terminal, straight from the device, so it is on screen a few hundredths of a second after the device made it. [How it works](docs/reference.md#the-screen).
