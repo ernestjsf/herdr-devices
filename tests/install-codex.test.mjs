@@ -26,6 +26,8 @@ test("no hooks.json: writes it with the absolute claim.sh path and a 10 s Sessio
   assert.equal(hooks.PreToolUse[0].matcher, "mcp__.*maestro.*");
   assert.equal(hooks.PreToolUse[0].hooks[0].command, claim);
   assert.equal(hooks.PreToolUse[0].hooks[0].timeout, 10);
+  assert.equal(hooks.PostToolUse[0].matcher, "mcp__.*maestro.*");
+  assert.equal(hooks.PostToolUse[0].hooks[0].command, claim);
   assert.equal(hooks.SessionEnd[0].hooks[0].command, claim);
   assert.equal(hooks.SessionEnd[0].hooks[0].timeout, 10);
 });
@@ -44,6 +46,7 @@ test("hooks.json without claim.sh: left alone, entries printed", () => {
   const r = run();
   assert.equal(r.status, 0);
   assert.match(r.stdout, /"PreToolUse".*claim\.sh codex/);
+  assert.match(r.stdout, /"PostToolUse".*claim\.sh codex/);
   assert.match(r.stdout, /"SessionEnd".*"timeout": 10/);
   assert.match(r.stdout, /Merge these into .*hooks\.json\./);
   assert.equal(readFileSync(file, "utf8"), '{"hooks":{}}');
