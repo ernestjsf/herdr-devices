@@ -302,7 +302,7 @@ class Panel {
 
   // The panel's box: it holds the keyboard and knows its size.
   frame(t) {
-    return v_flex().id("root").track_focus(this.handle).size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
+    return v_flex().id("root").track_focus(this.handle).size_full().min_h(0).overflow_hidden().bg(t.background)
       .text_color(t.foreground).text_size(13)
       .on_size_change((size, cx) => { this.width = size.width; this.height = size.height; cx.notify(); })
       .on_key_down((e, cx) => this.key(e, cx));
@@ -449,9 +449,9 @@ class Panel {
     if (query && !secs.length && all.length) body.push(this.line("nomatch", "No devices match", null, t));
     // Maestro is there but no agent can claim: one hint above the footer, unless hidden for good.
     const hint = !rail && maestroFound() && !hookInstalled() && !this.hintHidden;
-    // The list: the panel less its border (2), header (42), filter field (38: 8 above, 28, 2 below),
+    // The list: the panel less its header (42), filter field (38: 8 above, 28, 2 below),
     // footer (28) and hint (32), none in the rail, and bottom padding (8).
-    const listHeight = this.height - 2 - 42 - (rail ? 0 : 38 + 28) - (hint ? 32 : 0) - 8;
+    const listHeight = this.height - 42 - (rail ? 0 : 38 + 28) - (hint ? 32 : 0) - 8;
     // While filtering every match shows, as if all fit.
     const fits = Boolean(query) || fitsUnfolded(secs.map((s) => ({ count: s.devices.length, closed: !rail && this.folds.closed[s.title] === true, row: s.running && !rail ? 40 : 26 })), listHeight);
     const c = { t, rail, fits, query, pending, used: shared("devices.used") ?? {}, terminals: terminals(), agents: agents(), shown: [], now: Date.now() };

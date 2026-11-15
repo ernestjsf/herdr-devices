@@ -14,7 +14,7 @@ driving the device; clicking it jumps to that agent.
 
 ## What you see
 
-One column on the `background` color, radius 10, 1px `border`, base type 13px
+One column on the `background` color, base type 13px
 in `foreground`. Top to bottom:
 
 - **Header**, 42px, 14px side padding, 1px `border` underneath. "Devices" at
@@ -305,7 +305,7 @@ action button reads `Working…` while it runs.
   entries of its platform's devices that are gone); it shows every device that isn't
   off or has a phase under way, plus the three most recent off ones. When every section unfolded fits the list's
   height (a header 32px with its margin, a row 26px, a Running row 40px outside the rail, a closed section only its
-  header; the list is the panel less border 2, header 42, filter field 38 and footer 28 outside the rail,
+  header; the list is the panel less header 42, filter field 38 and footer 28 outside the rail,
   hint 32 when shown, padding 8), all rows show and no fold row does. Show all / Show fewer and the header's fold are
   remembered per section title in `localStorage`.
 - **Filter**: typing in the field keeps the devices whose name holds the text
